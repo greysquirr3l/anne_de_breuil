@@ -240,6 +240,7 @@ mod tests {
             None,
             vec![],
             SignatureStatus::Unknown,
+            None,
         )
     }
 
@@ -252,6 +253,7 @@ mod tests {
             Some(ProcessPath::from_str(process_path).unwrap()),
             vec![],
             SignatureStatus::Unknown,
+            None,
         )
     }
 
@@ -368,6 +370,7 @@ mod tests {
             None,
             vec![],
             SignatureStatus::Unknown,
+            None,
         );
         let rules = vec![block_rule(443)];
         let verdict = evaluate(&endpoint, &rules, &[]);
@@ -491,6 +494,7 @@ mod tests {
             Some(ProcessPath::from_str(MATRIX_OWNING_PROCESS).unwrap()),
             vec![ServiceName::from_str(MATRIX_HOSTED_SERVICE).unwrap()],
             SignatureStatus::Unknown,
+            None,
         );
 
         MatrixCase {

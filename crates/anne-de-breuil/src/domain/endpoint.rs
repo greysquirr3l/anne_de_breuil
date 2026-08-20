@@ -37,6 +37,16 @@ pub struct Endpoint {
     pub signature_status: SignatureStatus,
     /// Reachability exposure, derived from `bind_address`.
     pub exposure: Exposure,
+    /// The owning process's raw, unredacted command line, if the platform
+    /// reported one (e.g. `Win32_Process` `CommandLine`).
+    ///
+    /// Stays a raw `String` all the way to this aggregate deliberately —
+    /// unlike every other field here, there is no domain value object to
+    /// parse it into, because it is inherently free-form platform text.
+    /// [`crate::domain::report_model::ReportModel::build`] is the one place
+    /// downstream permitted to read it, and only to redact it before it
+    /// reaches a view model; no report format may see this field directly.
+    pub command_line: Option<String>,
 }
 
 impl Endpoint {
@@ -45,6 +55,11 @@ impl Endpoint {
     /// same services in a different collection order compare and serialize
     /// identically.
     #[must_use]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "one parameter per field keeps every Endpoint field explicit at every call site, \
+                  matching the precedent already set by ScanSnapshot::new"
+    )]
     pub fn new(
         protocol: Protocol,
         bind_address: BindAddress,
@@ -53,6 +68,7 @@ impl Endpoint {
         process_path: Option<ProcessPath>,
         mut hosted_services: Vec<ServiceName>,
         signature_status: SignatureStatus,
+        command_line: Option<String>,
     ) -> Self {
         hosted_services.sort();
         let exposure = Exposure::classify(bind_address.ip());
@@ -65,6 +81,7 @@ impl Endpoint {
             hosted_services,
             signature_status,
             exposure,
+            command_line,
         }
     }
 
@@ -90,6 +107,7 @@ mod tests {
             None,
             vec![],
             SignatureStatus::Unknown,
+            None,
         )
     }
 
@@ -103,6 +121,7 @@ mod tests {
             None,
             vec![],
             SignatureStatus::Unknown,
+            None,
         );
         assert_eq!(loopback.exposure, Exposure::Loopback);
 
@@ -123,6 +142,7 @@ mod tests {
                 ServiceName::try_from("Dnscache".to_owned()).unwrap(),
             ],
             SignatureStatus::Unknown,
+            None,
         );
         assert_eq!(shuffled.hosted_services[0].as_str(), "Dnscache");
         assert_eq!(shuffled.hosted_services[1].as_str(), "W32Time");

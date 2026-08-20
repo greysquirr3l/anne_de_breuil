@@ -317,6 +317,11 @@ pub enum ProcessAttribution {
         hosted_services: Vec<ServiceName>,
         /// Code-signing status of the owning binary.
         signature: SignatureStatus,
+        /// The owning process's raw, unredacted command line, if the
+        /// platform reported one. Carried through unparsed — see
+        /// [`crate::domain::endpoint::Endpoint::command_line`] for why this
+        /// stays a raw string all the way to the report boundary.
+        command_line: Option<String>,
     },
     /// The raw endpoint carried an owning pid, but the process had already
     /// exited by the time [`ProcessResolver::describe`] queried it.
@@ -480,6 +485,7 @@ where
         path,
         hosted_services,
         signature,
+        command_line: raw_process.command_line,
     })
 }
 

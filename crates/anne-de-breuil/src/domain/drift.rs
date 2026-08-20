@@ -299,6 +299,7 @@ mod tests {
             None,
             vec![],
             SignatureStatus::Unknown,
+            None,
         )
     }
 
@@ -357,6 +358,7 @@ mod tests {
                 endpoint.process_path.clone(),
                 endpoint.hosted_services.clone(),
                 endpoint.signature_status.clone(),
+                endpoint.command_line.clone(),
             )
         }
 
@@ -693,6 +695,7 @@ mod tests {
             None,
             vec![],
             SignatureStatus::Unknown,
+            None,
         );
         let current_endpoint = Endpoint::new(
             Protocol::Tcp,
@@ -702,6 +705,7 @@ mod tests {
             None,
             vec![],
             SignatureStatus::Signed(PublisherName::try_from("Contoso".to_owned()).unwrap()),
+            None,
         );
         let baseline = build_snapshot(vec![baseline_endpoint], vec![]);
         let current = build_snapshot(vec![current_endpoint], vec![]);
@@ -732,6 +736,7 @@ mod tests {
             Some(ProcessPath::from_str("C:\\svc\\old.exe").unwrap()),
             vec![],
             SignatureStatus::Unknown,
+            None,
         );
         let current_endpoint = Endpoint::new(
             Protocol::Tcp,
@@ -741,6 +746,7 @@ mod tests {
             Some(ProcessPath::from_str("C:\\svc\\new.exe").unwrap()),
             vec![],
             SignatureStatus::Unknown,
+            None,
         );
         let baseline = build_snapshot(vec![baseline_endpoint], vec![]);
         let current = build_snapshot(vec![current_endpoint], vec![]);

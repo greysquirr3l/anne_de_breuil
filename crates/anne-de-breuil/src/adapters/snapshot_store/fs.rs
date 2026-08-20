@@ -288,6 +288,7 @@ mod tests {
             None,
             vec![],
             SignatureStatus::Unknown,
+            None,
         )
     }
 

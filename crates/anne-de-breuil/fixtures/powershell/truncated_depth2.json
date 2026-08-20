@@ -1,24 +1,43 @@
 {
-  "LanguageMode": "FullLanguage",
-  "PowerShellVersion": "5.1.17763.4131",
-  "TcpEndpoints": [
+  "schema_name": "windows-listening-surface",
+  "schema_version": 2,
+  "metadata": {
+    "language_mode": "FullLanguage",
+    "power_shell_version": "5.1",
+    "command_lines_included": false,
+    "executable_paths_included": false,
+    "service_paths_included": false,
+    "disabled_firewall_rules_included": false
+  },
+  "collection_status": {
+    "tcp_endpoints": { "status": "success", "count": 1 },
+    "udp_endpoints": { "status": "success", "count": 0 },
+    "processes": { "status": "success", "count": 1 },
+    "services": { "status": "success", "count": 0 },
+    "firewall_rules": { "status": "success", "count": 0 },
+    "firewall_profiles": { "status": "success", "count": 0 }
+  },
+  "diagnostics": [],
+  "listening_surface": [],
+  "tcp_endpoints": [
     {
-      "LocalAddress": "0.0.0.0",
-      "LocalPort": 443,
-      "OwningProcess": 4104,
-      "State": "Listen"
+      "local_address": "0.0.0.0",
+      "local_port": 80,
+      "owning_process": 100
     }
   ],
-  "UdpEndpoints": [],
-  "Processes": [
+  "udp_endpoints": [],
+  "processes": [
     {
-      "ProcessId": 4104,
-      "Name": "w3wp.exe",
-      "ExecutablePath": "C:\\Windows\\System32\\inetsrv\\w3wp.exe",
-      "CommandLine": "System.Object[]"
+      "process_id": 100,
+      "parent_process_id": null,
+      "name": "server.exe",
+      "creation_date": null,
+      "executable_path": null,
+      "command_line": "System.Object[]"
     }
   ],
-  "Services": [],
-  "FirewallRules": [],
-  "FirewallProfiles": []
+  "services": [],
+  "firewall_rules": [],
+  "firewall_profiles": []
 }

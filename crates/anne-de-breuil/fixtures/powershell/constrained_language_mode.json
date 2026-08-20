@@ -1,33 +1,81 @@
 {
-  "LanguageMode": "ConstrainedLanguage",
-  "PowerShellVersion": "5.1.19041.3803",
-  "TcpEndpoints": [
+  "schema_name": "windows-listening-surface",
+  "schema_version": 2,
+  "metadata": {
+    "language_mode": "ConstrainedLanguage",
+    "power_shell_version": "5.1.19041.3803",
+    "host_name": "CONTOSO-LOCKED01",
+    "os_name": "Microsoft Windows 10 Enterprise",
+    "os_version": "10.0.19041",
+    "is_64_bit_operating_system": true,
+    "policy_store": "ActiveStore",
+    "command_lines_included": false,
+    "executable_paths_included": false,
+    "service_paths_included": false,
+    "disabled_firewall_rules_included": false
+  },
+  "collection_status": {
+    "tcp_endpoints": { "status": "success", "count": 1 },
+    "udp_endpoints": { "status": "success", "count": 0 },
+    "processes": { "status": "success", "count": 1 },
+    "services": { "status": "success", "count": 1 },
+    "firewall_rules": { "status": "failed", "count": 0 },
+    "firewall_profiles": { "status": "failed", "count": 0 }
+  },
+  "diagnostics": [
     {
-      "LocalAddress": "0.0.0.0",
-      "LocalPort": 443,
-      "OwningProcess": 5288,
-      "State": "Listen"
+      "section": "firewall_rules",
+      "severity": "Error",
+      "message": "The 'NetSecurity' module is not allowlisted by the host's WDAC policy and could not be loaded."
+    },
+    {
+      "section": "firewall_profiles",
+      "severity": "Error",
+      "message": "The 'NetSecurity' module is not allowlisted by the host's WDAC policy and could not be loaded."
     }
   ],
-  "UdpEndpoints": [],
-  "Processes": [
+  "listening_surface": [
     {
-      "ProcessId": 5288,
-      "Name": "w3wp.exe",
-      "ExecutablePath": "C:\\Windows\\System32\\inetsrv\\w3wp.exe",
-      "CommandLine": "c:\\windows\\system32\\inetsrv\\w3wp.exe -ap \"DefaultAppPool\""
+      "transport": "TCP",
+      "local_address": "0.0.0.0",
+      "local_port": 5985,
+      "owning_process": 1500,
+      "process_name": null,
+      "hosted_services": [],
+      "owner_resolved": false
     }
   ],
-  "Services": [
+  "tcp_endpoints": [
     {
-      "Name": "W3SVC",
-      "DisplayName": "World Wide Web Publishing Service",
-      "ProcessId": 5288,
-      "State": "Running",
-      "PathName": "C:\\Windows\\System32\\inetsrv\\inetinfo.exe",
-      "StartMode": "Auto"
+      "local_address": "0.0.0.0",
+      "local_port": 5985,
+      "owning_process": 1500
     }
   ],
-  "FirewallRules": [],
-  "FirewallProfiles": []
+  "udp_endpoints": [],
+  "processes": [
+    {
+      "process_id": 1500,
+      "parent_process_id": null,
+      "name": "winrm.exe",
+      "creation_date": null,
+      "executable_path": null,
+      "command_line": null
+    }
+  ],
+  "services": [
+    {
+      "name": "WinRM",
+      "display_name": "Windows Remote Management (WS-Management)",
+      "process_id": 1500,
+      "state": "Running",
+      "status": "OK",
+      "start_mode": "Manual",
+      "start_name": "LocalSystem",
+      "service_type": "Share Process",
+      "path_name": null
+    }
+  ],
+  "firewall_rules": [],
+  "firewall_profiles": []
 }

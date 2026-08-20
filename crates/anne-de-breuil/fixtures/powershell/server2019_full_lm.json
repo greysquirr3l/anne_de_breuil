@@ -1,86 +1,142 @@
 {
-  "LanguageMode": "FullLanguage",
-  "PowerShellVersion": "5.1.17763.4131",
-  "TcpEndpoints": [
+  "schema_name": "windows-listening-surface",
+  "schema_version": 2,
+  "metadata": {
+    "language_mode": "FullLanguage",
+    "power_shell_version": "5.1.17763.4131",
+    "host_name": "CONTOSO-WEB01",
+    "os_name": "Microsoft Windows Server 2019 Datacenter",
+    "os_version": "10.0.17763",
+    "is_64_bit_operating_system": true,
+    "policy_store": "ActiveStore",
+    "command_lines_included": true,
+    "executable_paths_included": true,
+    "service_paths_included": true,
+    "disabled_firewall_rules_included": true
+  },
+  "collection_status": {
+    "tcp_endpoints": { "status": "success", "count": 3 },
+    "udp_endpoints": { "status": "success", "count": 1 },
+    "processes": { "status": "success", "count": 4 },
+    "services": { "status": "success", "count": 3 },
+    "firewall_rules": { "status": "success", "count": 3 },
+    "firewall_profiles": { "status": "success", "count": 3 }
+  },
+  "diagnostics": [],
+  "listening_surface": [
     {
-      "LocalAddress": "0.0.0.0",
-      "LocalPort": 443,
-      "OwningProcess": 4104,
-      "State": "Listen"
+      "transport": "TCP",
+      "local_address": "0.0.0.0",
+      "local_port": 443,
+      "owning_process": 4104,
+      "process_name": "w3wp.exe",
+      "hosted_services": ["W3SVC"],
+      "owner_resolved": true
     },
     {
-      "LocalAddress": "0.0.0.0",
-      "LocalPort": 3389,
-      "OwningProcess": 812,
-      "State": "Listen"
-    },
-    {
-      "LocalAddress": "::",
-      "LocalPort": 445,
-      "OwningProcess": 4,
-      "State": "Listen"
+      "transport": "TCP",
+      "local_address": "0.0.0.0",
+      "local_port": 3389,
+      "owning_process": 812,
+      "process_name": "svchost.exe",
+      "hosted_services": ["TermService"],
+      "owner_resolved": true
     }
   ],
-  "UdpEndpoints": [
+  "tcp_endpoints": [
     {
-      "LocalAddress": "0.0.0.0",
-      "LocalPort": 123,
-      "OwningProcess": 1108
+      "local_address": "0.0.0.0",
+      "local_port": 443,
+      "owning_process": 4104
+    },
+    {
+      "local_address": "0.0.0.0",
+      "local_port": 3389,
+      "owning_process": 812
+    },
+    {
+      "local_address": "::",
+      "local_port": 445,
+      "owning_process": 4
     }
   ],
-  "Processes": [
+  "udp_endpoints": [
     {
-      "ProcessId": 4104,
-      "Name": "w3wp.exe",
-      "ExecutablePath": "C:\\Windows\\System32\\inetsrv\\w3wp.exe",
-      "CommandLine": "c:\\windows\\system32\\inetsrv\\w3wp.exe -ap \"DefaultAppPool\""
-    },
-    {
-      "ProcessId": 812,
-      "Name": "svchost.exe",
-      "ExecutablePath": "C:\\Windows\\System32\\svchost.exe",
-      "CommandLine": "C:\\Windows\\system32\\svchost.exe -k termsvcs -p"
-    },
-    {
-      "ProcessId": 4,
-      "Name": "System",
-      "ExecutablePath": null,
-      "CommandLine": null
-    },
-    {
-      "ProcessId": 1108,
-      "Name": "svchost.exe",
-      "ExecutablePath": "C:\\Windows\\System32\\svchost.exe",
-      "CommandLine": "C:\\Windows\\system32\\svchost.exe -k LocalServiceNetworkRestricted -p -s W32Time"
+      "local_address": "0.0.0.0",
+      "local_port": 123,
+      "owning_process": 1108
     }
   ],
-  "Services": [
+  "processes": [
     {
-      "Name": "W3SVC",
-      "DisplayName": "World Wide Web Publishing Service",
-      "ProcessId": 4104,
-      "State": "Running",
-      "PathName": "C:\\Windows\\System32\\inetsrv\\inetinfo.exe",
-      "StartMode": "Auto"
+      "process_id": 4104,
+      "parent_process_id": 800,
+      "name": "w3wp.exe",
+      "creation_date": "2026-08-19T10:11:12.3456780Z",
+      "executable_path": "C:\\Windows\\System32\\inetsrv\\w3wp.exe",
+      "command_line": "c:\\windows\\system32\\inetsrv\\w3wp.exe -ap \"DefaultAppPool\""
     },
     {
-      "Name": "TermService",
-      "DisplayName": "Remote Desktop Services",
-      "ProcessId": 812,
-      "State": "Running",
-      "PathName": "C:\\Windows\\system32\\svchost.exe -k termsvcs -p",
-      "StartMode": "Manual"
+      "process_id": 812,
+      "parent_process_id": 600,
+      "name": "svchost.exe",
+      "creation_date": "2026-08-19T09:01:02.3456780Z",
+      "executable_path": "C:\\Windows\\System32\\svchost.exe",
+      "command_line": "C:\\Windows\\system32\\svchost.exe -k termsvcs -p"
     },
     {
-      "Name": "W32Time",
-      "DisplayName": "Windows Time",
-      "ProcessId": 1108,
-      "State": "Running",
-      "PathName": "C:\\Windows\\system32\\svchost.exe -k LocalServiceNetworkRestricted -p -s W32Time",
-      "StartMode": "Manual"
+      "process_id": 4,
+      "parent_process_id": null,
+      "name": "System",
+      "creation_date": null,
+      "executable_path": null,
+      "command_line": null
+    },
+    {
+      "process_id": 1108,
+      "parent_process_id": 600,
+      "name": "svchost.exe",
+      "creation_date": "2026-08-19T09:01:03.3456780Z",
+      "executable_path": "C:\\Windows\\System32\\svchost.exe",
+      "command_line": "C:\\Windows\\system32\\svchost.exe -k LocalServiceNetworkRestricted -p -s W32Time"
     }
   ],
-  "FirewallRules": [
+  "services": [
+    {
+      "name": "W3SVC",
+      "display_name": "World Wide Web Publishing Service",
+      "process_id": 4104,
+      "state": "Running",
+      "status": "OK",
+      "start_mode": "Auto",
+      "start_name": "LocalSystem",
+      "service_type": "Share Process",
+      "path_name": "C:\\Windows\\System32\\inetsrv\\inetinfo.exe"
+    },
+    {
+      "name": "TermService",
+      "display_name": "Remote Desktop Services",
+      "process_id": 812,
+      "state": "Running",
+      "status": "OK",
+      "start_mode": "Manual",
+      "start_name": "LocalSystem",
+      "service_type": "Share Process",
+      "path_name": "C:\\Windows\\system32\\svchost.exe -k termsvcs -p"
+    },
+    {
+      "name": "W32Time",
+      "display_name": "Windows Time",
+      "process_id": 1108,
+      "state": "Running",
+      "status": "OK",
+      "start_mode": "Manual",
+      "start_name": "LocalService",
+      "service_type": "Share Process",
+      "path_name": "C:\\Windows\\system32\\svchost.exe -k LocalServiceNetworkRestricted -p -s W32Time"
+    }
+  ],
+  "firewall_rules": [
     {
       "rule_id": "{7C7F6C3E-1B7B-4B0A-9C1D-3A5E2F9B0A11}",
       "display_name": "World Wide Web Services (HTTPS Traffic-In)",
@@ -118,7 +174,7 @@
       "policy_store": "Local"
     }
   ],
-  "FirewallProfiles": [
+  "firewall_profiles": [
     {
       "name": "Domain",
       "enabled": true,

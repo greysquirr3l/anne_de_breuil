@@ -19,6 +19,7 @@ pub mod process;
 pub mod profile;
 pub mod protocol;
 pub mod publisher;
+pub mod reachability;
 pub mod service;
 pub mod snapshot;
 
@@ -38,5 +39,6 @@ pub use process::ProcessPath;
 pub use profile::{FirewallProfileKind, ProfileState};
 pub use protocol::Protocol;
 pub use publisher::{PublisherName, SignatureStatus};
+pub use reachability::{Reachability, ReachabilityVerdict, evaluate};
 pub use service::ServiceName;
 pub use snapshot::ScanSnapshot;

@@ -1,0 +1,145 @@
+# === Rust / Cargo ===
+/target/
+**/target/
+# Cargo.lock is committed intentionally — anne-de-breuil-cli ships binaries,
+# and a workspace producing a binary should pin its dependency graph.
+# (do not add Cargo.lock here)
+
+# rustc/cargo incremental & backup files
+**/*.rs.bk
+*.pdb
+
+# === Cross-compilation (cargo-xwin) ===
+# Local xwin SDK/CRT cache if pointed at the repo instead of the global cache dir
+/.xwin-cache/
+/xwin-cache/
+
+# === Coverage / profiling ===
+*.profraw
+*.profdata
+/coverage/
+lcov.info
+tarpaulin-report.html
+/target/llvm-cov/
+
+# === anne-de-breuil project-specific ===
+# Local, machine-specific config — the shipped default lives in assets/anne.default.toml
+/anne.toml
+.anne/
+
+# Local host inventories — these must never be committed even though the
+# schema forbids secrets, since real hostnames/tags are still operational data
+inventory.toml
+inventory.local.toml
+
+# Local snapshot store output (filesystem backend default path) and SQLite store files
+/snapshots/
+/data/
+*.sqlite
+*.sqlite3
+*.db
+*.db-wal
+*.db-shm
+
+# Locally generated reports/exports from running `anne report` during dev
+/out/
+/reports/
+*.anne-report.html
+
+# Release dry-run artifacts (SBOM, checksums, staged binaries) — real release
+# artifacts are produced and uploaded by CI, never committed
+/dist/
+/release-artifacts/
+*.sbom.json
+
+# Font vendoring: raw source faces fetched for subsetting are NOT committed —
+# only the subsetted output in assets/fonts/*.woff2 is (per font-vendoring task)
+/fonts-src/
+/assets/fonts-src/
+
+# SSH known_hosts used for local/manual testing against real hosts
+known_hosts
+known_hosts.local
+
+# === Environment / secrets ===
+.env
+.env.*
+!.env.example
+
+# === Editor / IDE ===
+# .vscode/ is intentionally tracked in this repo (orchestrator/evaluator prompts,
+# mcp.json, shared settings) — do not ignore it wholesale.
+.idea/
+*.iml
+*.ipr
+*.iws
+.vs/
+*.sublime-workspace
+*.sublime-project
+*.swp
+*.swo
+*.swn
+*~
+.netrwhist
+
+# === macOS ===
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+.fseventsd
+.DocumentRevisions-V100
+.TemporaryItems
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# === Windows ===
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+*.stackdump
+
+# === Linux ===
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# === Coraline ===
+.coraline/
+
+# === Wiggum ===
+anne-de-breuil-plan.toml
+tasks/
+features.json
+IMPLEMENTATION_PLAN.md
+PROGRESS.md
+
+# === IDE/AI ===
+.vscode/
+AGENTS.md
+CLAUDE.md
+.claude/
+.opencode/
+
+# === Development Documentation ===
+docs/dev/
+.github/hooks/rtk-rewrite.json
+.github/copilot-instructions.md

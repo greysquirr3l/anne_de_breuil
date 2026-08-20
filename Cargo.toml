@@ -1,0 +1,27 @@
+[workspace]
+resolver = "3"
+members = ["crates/anne-de-breuil", "crates/anne-de-breuil-cli"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97.1"
+license = "MIT OR Apache-2.0"
+description = "Listening-port surface enumeration correlated with process, service, and firewall policy."
+repository = "https://github.com/anne-de-breuil/anne-de-breuil"
+readme = "README.md"
+keywords = ["network", "security", "port-scanner", "firewall", "audit"]
+categories = ["command-line-utilities", "network-programming"]
+
+[workspace.dependencies]
+anne-de-breuil = { path = "crates/anne-de-breuil", version = "0.1.0" }
+thiserror = "2"
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+async-trait = "0.1"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

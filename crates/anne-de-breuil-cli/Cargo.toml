@@ -1,0 +1,19 @@
+[package]
+name = "anne-de-breuil-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[[bin]]
+name = "anne"
+path = "src/main.rs"
+
+[dependencies]
+anne-de-breuil.workspace = true
+anyhow.workspace = true

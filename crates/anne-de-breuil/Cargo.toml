@@ -1,0 +1,26 @@
+[package]
+name = "anne-de-breuil"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[lib]
+name = "anne_de_breuil"
+
+[dependencies]
+thiserror.workspace = true
+
+[features]
+default = ["windows-collector", "linux-collector", "report-html"]
+windows-collector = []
+linux-collector = []
+ssh = []
+report-html = []
+store-sqlite = []
+portal = []

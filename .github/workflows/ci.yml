@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  # Enforce -D warnings for the build itself via the stable (1.97+)
+  # build.warnings Cargo config key, not RUSTFLAGS — RUSTFLAGS changes
+  # bust the build cache between local and CI runs.
+  CARGO_BUILD_WARNINGS: deny
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-test-lint:
+    name: build, test, clippy (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pinned toolchain
+        run: rustup show
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: cargo build --workspace --all-features
+
+      - name: Test
+        run: cargo test --workspace --all-features
+
+      - name: Clippy
+        run: >
+          cargo clippy --workspace --all-targets --all-features --
+          -W clippy::all -W clippy::pedantic -W clippy::nursery -W clippy::cargo -W clippy::perf
+          -A clippy::module_name_repetitions -A clippy::must_use_candidate -A clippy::missing_errors_doc
+          -A clippy::missing_panics_doc -A clippy::struct_excessive_bools -A clippy::multiple_crate_versions
+          -D clippy::unwrap_used -D clippy::expect_used -D clippy::panic -D clippy::indexing_slicing
+          -D clippy::cast_ptr_alignment -D clippy::suspicious -D warnings
+
+  cargo-deny:
+    name: cargo-deny (advisories, licenses, bans, sources)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+
+  codeql:
+    name: CodeQL
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pinned toolchain
+        run: rustup show
+
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: rust
+
+      - name: Build for analysis
+        run: cargo build --workspace --all-features
+
+      - uses: github/codeql-action/analyze@v3

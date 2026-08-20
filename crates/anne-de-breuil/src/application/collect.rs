@@ -34,6 +34,18 @@ pub enum CollectError {
     /// A raw payload could not be parsed into the shape this module expects.
     #[error("payload parse failed: {0}")]
     Parse(String),
+    /// The host has no reachable firewall policy source at all — e.g. the
+    /// nftables netlink family is unreachable, permission was denied, or
+    /// the host runs a legacy iptables-only firewall with nothing for a
+    /// nftables query to find. Deliberately distinct from `Ok(vec![])`,
+    /// which means the query succeeded and the ruleset is genuinely empty:
+    /// an unreadable policy source and an empty one are different findings
+    /// a report reader needs to tell apart.
+    #[error("no firewall policy source available: {0}")]
+    PolicyUnavailable(String),
+    /// No collector adapter exists for the host's platform.
+    #[error("no collector adapter for this platform")]
+    UnsupportedPlatform,
 }
 
 impl From<DomainError> for CollectError {

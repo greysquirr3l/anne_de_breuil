@@ -53,6 +53,11 @@ pub enum SignatureStatus {
     Unsigned,
     /// Signature status was not evaluated (e.g. no collector evidence for it yet).
     Unknown,
+    /// The platform has no code-signing concept this tool can evaluate
+    /// (e.g. Linux, which has no Authenticode equivalent) — distinct from
+    /// [`SignatureStatus::Unknown`], which means the platform *does* have a
+    /// signing concept but this collector run didn't establish it.
+    NotApplicable,
 }
 
 #[cfg(test)]
@@ -70,5 +75,6 @@ mod tests {
             SignatureStatus::Signed(PublisherName::try_from("Contoso".to_owned()).unwrap());
         assert_ne!(signed, SignatureStatus::Unsigned);
         assert_ne!(SignatureStatus::Unsigned, SignatureStatus::Unknown);
+        assert_ne!(SignatureStatus::Unknown, SignatureStatus::NotApplicable);
     }
 }

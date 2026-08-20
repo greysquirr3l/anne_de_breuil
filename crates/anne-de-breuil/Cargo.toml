@@ -47,6 +47,15 @@ wmi = { workspace = true, optional = true }
 [target.'cfg(windows)'.dependencies]
 windows = { workspace = true, optional = true }
 
+# `netlink-sys` genuinely doesn't compile off Linux (it binds
+# `libc::sockaddr_nl`, which doesn't exist in macOS's libc) -- unlike the
+# `windows`-crate situation above, this isn't a workaround for an upstream
+# bug, it's a real platform boundary, so it's target-restricted the same
+# way `sysinfo` and `netstat2` already restrict their own Linux-only
+# netlink dependencies.
+[target.'cfg(target_os = "linux")'.dependencies]
+netlink-sys = { workspace = true, optional = true }
+
 [dev-dependencies]
 proptest.workspace = true
 tempfile.workspace = true
@@ -54,7 +63,7 @@ tempfile.workspace = true
 [features]
 default = ["windows-collector", "linux-collector", "report-html"]
 windows-collector = ["dep:netstat2", "dep:sysinfo", "dep:wmi", "dep:windows"]
-linux-collector = []
+linux-collector = ["dep:netstat2", "dep:sysinfo", "dep:netlink-sys"]
 ssh = []
 report-html = ["dep:sha2", "dep:base64"]
 store-sqlite = ["dep:rusqlite"]

@@ -21,7 +21,13 @@
 //! `windows` crate directly rather than shelling out. Only its pure,
 //! platform-independent WMI-row-to-`Raw*`-DTO mapping
 //! ([`windows_collector::firewall_join`]) compiles unconditionally, so it
-//! can be fixture-tested on any host.
+//! can be fixture-tested on any host. [`linux_collector`] is the seventh:
+//! the Linux collection adapter, behind `linux-collector`, following the
+//! same split as `windows_collector` -- its parsing/classification logic
+//! (`/proc/net` socket-table parsing, cgroup-to-systemd-unit extraction,
+//! nftables netlink wire framing) compiles and is fixture-tested on any
+//! host, while the concrete adapter structs that actually open sockets or
+//! read `/proc` are `#[cfg(target_os = "linux")]`-gated.
 
 pub mod config;
 pub mod prober;
@@ -35,3 +41,6 @@ pub mod powershell_collector;
 
 #[cfg(feature = "windows-collector")]
 pub mod windows_collector;
+
+#[cfg(feature = "linux-collector")]
+pub mod linux_collector;

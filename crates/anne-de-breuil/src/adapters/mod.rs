@@ -37,7 +37,11 @@
 //! fails ordinary validation — that's the finding, not a reason to abort.
 //! Its non-validating `ClientConfig` is confined to a private submodule
 //! unreachable from anywhere else in this tree; see that module's own doc
-//! comment for the confinement mechanism and its enforcing test.
+//! comment for the confinement mechanism and its enforcing test. [`ssh_transport`]
+//! is the tenth: [`crate::application::remote::RemoteTransport`] implemented
+//! over SSH via `russh`/`russh-sftp`, behind the `ssh` feature — opportunistic,
+//! never assumed; a host with no working SSH demotes to `TargetStrategy::Probe`
+//! rather than aborting the run.
 
 pub mod config;
 pub mod inventory;
@@ -56,3 +60,6 @@ pub mod windows_collector;
 
 #[cfg(feature = "linux-collector")]
 pub mod linux_collector;
+
+#[cfg(feature = "ssh")]
+pub mod ssh_transport;

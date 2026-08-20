@@ -38,6 +38,10 @@ rusqlite = { workspace = true, optional = true }
 netstat2 = { workspace = true, optional = true }
 sysinfo = { workspace = true, optional = true }
 wmi = { workspace = true, optional = true }
+russh = { workspace = true, optional = true }
+russh-sftp = { workspace = true, optional = true }
+sha1 = { workspace = true, optional = true }
+hmac = { workspace = true, optional = true }
 
 # `windows` itself compiles as a plain library on any host, but the current
 # `windows`/`windows-future` release pair has a real upstream bug that only
@@ -51,6 +55,7 @@ wmi = { workspace = true, optional = true }
 # all off Windows, so `windows-future` never gets built.
 [target.'cfg(windows)'.dependencies]
 windows = { workspace = true, optional = true }
+keyring = { workspace = true, features = ["windows-native"], optional = true }
 
 # `netlink-sys` genuinely doesn't compile off Linux (it binds
 # `libc::sockaddr_nl`, which doesn't exist in macOS's libc) -- unlike the
@@ -60,6 +65,14 @@ windows = { workspace = true, optional = true }
 # netlink dependencies.
 [target.'cfg(target_os = "linux")'.dependencies]
 netlink-sys = { workspace = true, optional = true }
+keyring = { workspace = true, features = ["linux-native"], optional = true }
+
+# Native macOS Keychain backend for `AuthMethod::KeyFromKeyring` -- see the
+# doc comment on `authenticate_via_keyring` in
+# `adapters/ssh_transport/handler.rs` for why this is the native backend
+# rather than the freedesktop Secret Service.
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { workspace = true, features = ["apple-native"], optional = true }
 
 [dev-dependencies]
 proptest.workspace = true
@@ -70,7 +83,7 @@ rcgen = "0.14"
 default = ["windows-collector", "linux-collector", "report-html"]
 windows-collector = ["dep:netstat2", "dep:sysinfo", "dep:wmi", "dep:windows"]
 linux-collector = ["dep:netstat2", "dep:sysinfo", "dep:netlink-sys"]
-ssh = []
+ssh = ["dep:russh", "dep:russh-sftp", "dep:sha1", "dep:hmac", "dep:keyring"]
 report-html = ["dep:base64"]
 store-sqlite = ["dep:rusqlite"]
 portal = []

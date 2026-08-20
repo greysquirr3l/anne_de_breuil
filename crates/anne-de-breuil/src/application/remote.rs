@@ -56,6 +56,49 @@ pub enum TransportError {
     /// A candidate [`RemotePath`] was empty or otherwise not a usable path.
     #[error("invalid remote path: {0:?}")]
     InvalidPath(String),
+    /// The remote collector's self-reported hash did not match the hash
+    /// computed locally before push -- the pushed artifact may have been
+    /// tampered with, truncated, or swapped in transit.
+    #[error("remote artifact hash did not match the expected local hash")]
+    IntegrityMismatch,
+    /// The host presented a key with no matching entry in `known_hosts`,
+    /// and the caller did not opt into accepting new keys for this
+    /// invocation. Fails closed: connecting with a fresh, unverified key is
+    /// exactly the trust-on-first-use gap a MITM would exploit.
+    #[error(
+        "host key is not in known_hosts (fingerprint {fingerprint}); \
+         re-run with an explicit accept-new option after verifying it out of band"
+    )]
+    UnknownHostKey {
+        /// The SHA256 fingerprint of the offered, unrecognised key.
+        fingerprint: String,
+    },
+    /// The host's key does not match the one already recorded in
+    /// `known_hosts`. Never auto-accepted, even when the caller opted into
+    /// accepting *new* keys -- a changed key on a known host is exactly the
+    /// signal `--accept-new` must not paper over.
+    #[error("host key has changed since it was last recorded in known_hosts")]
+    HostKeyChanged,
+    /// Captured stdout reached the configured byte cap before the remote
+    /// command finished producing output. The command's actual output is
+    /// discarded rather than silently truncated and trusted.
+    #[error("remote stdout exceeded the configured capture cap")]
+    OutputCapExceeded,
+    /// Decoding a JSON payload read back from a remote command failed.
+    #[error("decoding remote JSON output failed: {0}")]
+    JsonDecode(#[from] serde_json::Error),
+    /// The underlying SSH protocol/session failed. Only constructible when
+    /// the `ssh` feature is enabled, since `russh::Error` is only in the
+    /// dependency graph behind that feature.
+    #[cfg(feature = "ssh")]
+    #[error("ssh session error: {0}")]
+    Ssh(#[from] russh::Error),
+    /// An SFTP operation (push/remove) failed at the protocol level. Only
+    /// constructible when the `ssh` feature is enabled, for the same reason
+    /// as [`TransportError::Ssh`].
+    #[cfg(feature = "ssh")]
+    #[error("sftp error: {0}")]
+    Sftp(#[from] russh_sftp::client::error::Error),
 }
 
 /// Pushes, executes, and removes a static collector on a remote host.
@@ -171,6 +214,24 @@ impl RemotePath {
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+
+    /// Builds a fresh, unpredictable path under the remote temp directory.
+    ///
+    /// Every SSH-reachable target this crate scans is Unix-like (WinRM/PSRP
+    /// are out of scope by design), so `/tmp` is a safe, always-present
+    /// default rather than something that needs a round trip to discover.
+    /// The random component is a v4 UUID: unguessable enough that a
+    /// concurrent, unrelated process on the same host can't collide with
+    /// or predict the artifact's path, which matters because the artifact
+    /// briefly holds a copy of the collector binary this crate ships.
+    #[must_use]
+    pub fn random_under_temp() -> Self {
+        // Constructed directly (bypassing `TryFrom`'s validation) rather
+        // than via `.unwrap()`: the format string is always non-empty and
+        // non-whitespace, so the validation could never fail here, and this
+        // way there's no fallible path to justify at all.
+        Self(format!("/tmp/anne-collector-{}", uuid::Uuid::new_v4()))
     }
 }
 

@@ -12,6 +12,16 @@ targets = [
 [advisories]
 db-path = "~/.cargo/advisory-db"
 yanked = "deny"
+ignore = [
+  # `paste` (unmaintained, no safe upgrade available) is pulled in by
+  # `netlink-packet-utils`, transitively via `netstat2`/`netlink-sys` for
+  # `linux-collector` (T07) -- entirely unrelated to T15's `ssh` feature
+  # work. Predates this task: confirmed present at the same version in
+  # Cargo.lock before any T15 changes. Left as an explicit, documented
+  # ignore rather than silently passing, since there's no upstream fix to
+  # take and no reason to block on it here.
+  "RUSTSEC-2024-0436",
+]
 
 [licenses]
 # BSD-2-Clause and Zlib added for T12, both OSI-approved/FSF Free/Libre

@@ -43,6 +43,33 @@ netstat2 = "0.11.2"
 sysinfo = "0.39.6"
 wmi = "0.18.4"
 netlink-sys = { version = "0.8", default-features = false }
+# `default-features = false` + `ring` (not the default `aws-lc-rs`) keeps the
+# crypto backend pure Rust, matching the choice already made for `rustls`
+# above -- `aws-lc-rs` builds BoringSSL-derived C/assembly via cc/cmake,
+# which works against static cross-compilation the same way OpenSSL would.
+#
+# The default `rsa` feature is deliberately left off: the `rsa` crate has an
+# open, unfixed advisory (RUSTSEC-2023-0071, the Marvin Attack timing
+# side-channel) with no available upgrade. Ed25519/ECDSA cover every key
+# type this project's own fixtures and recommended setup use; dropping RSA
+# support keeps `cargo audit` clean by removing the vulnerable dependency
+# rather than suppressing the finding.
+russh = { version = "0.62.7", default-features = false, features = [
+  "ring",
+  "flate2",
+] }
+russh-sftp = "2.4.0"
+# HMAC-SHA1 is the wire format OpenSSH itself uses for hashed known_hosts
+# entries (`|1|salt|hash`) -- unrelated to the SSH transport's own crypto
+# backend above, so pulling it in doesn't reopen the pure-Rust question.
+sha1 = "0.10"
+hmac = "0.12"
+# Per-OS native credential store backend, not the freedesktop Secret
+# Service -- see the doc comment on `authenticate_via_keyring` in
+# `adapters/ssh_transport/handler.rs` for why. Each platform enables its own
+# backend feature in the crate manifest's target-specific dependency table;
+# this entry only pins the version.
+keyring = { version = "3", default-features = false }
 windows = { version = "0.62.2", features = [
   "Win32_Foundation",
   "Win32_Security_Cryptography",

@@ -1,0 +1,41 @@
+[
+  {
+    "InstanceID": "{A1000000-0000-0000-0000-000000000001}",
+    "Name": "IIS-WebServerRole-HTTPS-In-TCP",
+    "DisplayName": "World Wide Web Services (HTTPS Traffic-In)",
+    "DisplayGroup": "World Wide Web Services (HTTPS)",
+    "Description": "An inbound rule to allow HTTPS traffic for IIS.",
+    "Direction": 1,
+    "Action": 1,
+    "Enabled": 1,
+    "Profiles": 7,
+    "PolicyStoreSource": "PersistentStore",
+    "PolicyStoreSourceType": 0
+  },
+  {
+    "InstanceID": "{A1000000-0000-0000-0000-000000000002}",
+    "Name": "RemoteDesktop-UserMode-In-TCP",
+    "DisplayName": "Remote Desktop - User Mode (TCP-In)",
+    "DisplayGroup": "Remote Desktop",
+    "Description": "Inbound rule for the Remote Desktop service to allow RDP traffic.",
+    "Direction": 1,
+    "Action": 1,
+    "Enabled": 1,
+    "Profiles": 1,
+    "PolicyStoreSource": "contoso.com\\Default Domain Policy",
+    "PolicyStoreSourceType": 1
+  },
+  {
+    "InstanceID": "{A1000000-0000-0000-0000-000000000003}",
+    "Name": "Block-Telnet-Out",
+    "DisplayName": "Block Telnet Outbound",
+    "DisplayGroup": "",
+    "Description": "Blocks outbound Telnet traffic to the legacy management VLAN.",
+    "Direction": 2,
+    "Action": 2,
+    "Enabled": 1,
+    "Profiles": 7,
+    "PolicyStoreSource": "PersistentStore",
+    "PolicyStoreSourceType": 0
+  }
+]

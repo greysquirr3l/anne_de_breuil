@@ -1,0 +1,26 @@
+[
+  {
+    "InstanceID": "{A1000000-0000-0000-0000-000000000001}",
+    "Protocol": "TCP",
+    "LocalPort": "443",
+    "RemotePort": "Any",
+    "IcmpType": "Any",
+    "DynamicTarget": "Any"
+  },
+  {
+    "InstanceID": "{A1000000-0000-0000-0000-000000000002}",
+    "Protocol": "TCP",
+    "LocalPort": "3389",
+    "RemotePort": "Any",
+    "IcmpType": "Any",
+    "DynamicTarget": "Any"
+  },
+  {
+    "InstanceID": "{A1000000-0000-0000-0000-000000000003}",
+    "Protocol": "TCP",
+    "LocalPort": "1024-65535",
+    "RemotePort": "23",
+    "IcmpType": "Any",
+    "DynamicTarget": "Any"
+  }
+]

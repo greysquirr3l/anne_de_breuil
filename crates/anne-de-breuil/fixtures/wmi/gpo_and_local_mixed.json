@@ -1,0 +1,28 @@
+[
+  {
+    "InstanceID": "{B2000000-0000-0000-0000-000000000001}",
+    "Name": "Local-Allow-SMB-Admin",
+    "DisplayName": "Allow SMB Local Admin Rule",
+    "DisplayGroup": "",
+    "Description": "Added by a local administrator for an ad hoc file share.",
+    "Direction": 1,
+    "Action": 1,
+    "Enabled": 1,
+    "Profiles": 7,
+    "PolicyStoreSource": "PersistentStore",
+    "PolicyStoreSourceType": 0
+  },
+  {
+    "InstanceID": "{B2000000-0000-0000-0000-000000000002}",
+    "Name": "GPO-Corporate-VPN-Access",
+    "DisplayName": "Corporate VPN Access (GPO)",
+    "DisplayGroup": "Corporate VPN",
+    "Description": "Pushed down by the Domain Firewall Policy GPO.",
+    "Direction": 1,
+    "Action": 1,
+    "Enabled": 1,
+    "Profiles": 1,
+    "PolicyStoreSource": "contoso.com\\Domain Firewall Policy",
+    "PolicyStoreSourceType": 1
+  }
+]

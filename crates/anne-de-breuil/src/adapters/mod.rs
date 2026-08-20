@@ -14,8 +14,14 @@
 //! — always compiled in, since probing is a runtime opt-in behind a future
 //! `--probe` CLI flag, not a Cargo feature. [`powershell_collector`] is
 //! the fifth: the primary Windows collection adapter, behind
-//! `windows-collector` — a native Win32 fallback (T06) is expected to sit
-//! alongside it under the same feature.
+//! `windows-collector`. [`windows_collector`] is the sixth: the native
+//! Win32 fallback for hosts where PowerShell is absent, blocked by policy,
+//! or reduced to Constrained Language Mode — behind `windows-collector`
+//! *and* `#[cfg(windows)]`, since it calls `netstat2`/`sysinfo`/`wmi`/the
+//! `windows` crate directly rather than shelling out. Only its pure,
+//! platform-independent WMI-row-to-`Raw*`-DTO mapping
+//! ([`windows_collector::firewall_join`]) compiles unconditionally, so it
+//! can be fixture-tested on any host.
 
 pub mod config;
 pub mod prober;
@@ -26,3 +32,6 @@ pub mod fonts;
 
 #[cfg(feature = "windows-collector")]
 pub mod powershell_collector;
+
+#[cfg(feature = "windows-collector")]
+pub mod windows_collector;

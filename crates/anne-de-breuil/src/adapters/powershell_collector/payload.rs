@@ -1,13 +1,34 @@
-//! JSON payload shape written by `assets/collect.ps1`, and the pure,
-//! platform-independent parse from bytes into T04's `Raw*` DTOs.
+//! JSON payload shape written by `assets/collect.ps1` (schema v2), and
+//! the pure, platform-independent parse from bytes into T04's `Raw*`
+//! DTOs.
 //!
 //! Nothing here spawns a process or touches the filesystem — every
 //! function operates on an in-memory byte slice, so it runs (and is
 //! tested) identically on any host, including this one.
+//!
+//! ## Schema versioning
+//!
+//! The script emits `schema_name = "windows-listening-surface"` and
+//! `schema_version = 2`. Unknown versions are rejected outright at the
+//! parse boundary so a future v3 payload can never silently coerce
+//! through a v2 parser (a real risk: any new mandatory field the v3
+//! script adds would deserialize as zero/empty without the v2 parser
+//! noticing, then propagate as a misleading "clean" collection).
+
+use std::collections::BTreeMap;
 
 use crate::application::collect::{
     CollectError, RawEndpoint, RawProcess, RawProfile, RawRule, RawService,
 };
+
+/// The only schema version this parser understands. Bumping it is a
+/// deliberate, coordinated change — the parser and the script both move
+/// together.
+const SUPPORTED_SCHEMA_VERSION: u32 = 2;
+
+/// The canonical schema name. The parser rejects any other name with
+/// `CollectError::Parse`, not a silent coercion.
+const SUPPORTED_SCHEMA_NAME: &str = "windows-listening-surface";
 
 /// Fidelity the helper script could actually collect at, recorded from
 /// `$ExecutionContext.SessionState.LanguageMode`.
@@ -17,10 +38,11 @@ use crate::application::collect::{
 /// hasn't allowlisted (commonly `NetSecurity`) can silently return nothing
 /// rather than erroring, which is why a caller needs this recorded
 /// alongside the data rather than inferring it from empty collections.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Deserialize)]
 pub enum LanguageMode {
     /// No restrictions: every cmdlet and filter the script uses ran.
     #[serde(rename = "FullLanguage")]
+    #[default]
     Full,
     /// WDAC/AppLocker-restricted: type accelerators, `New-Object`, and
     /// static .NET method calls are blocked (this script never uses any
@@ -52,6 +74,12 @@ pub(super) struct HostedService {
 
 /// One fully parsed collection payload, already mapped into T04's `Raw*`
 /// DTOs (or the adapter-local [`HostedService`] pairing, for services).
+///
+/// The richer v2 envelope (`Metadata`, `CollectionStatus`, `Diagnostics`,
+/// `ListeningSurface`) is read and validated by the parser but its fields
+/// are not propagated here — they're diagnostic/audit data, not inputs to
+/// the four T04 ports the adapter implements. A future report-assembly
+/// task is the right home for that data.
 #[derive(Debug, Clone)]
 pub(super) struct PowerShellPayload {
     pub(super) language_mode: LanguageMode,
@@ -63,13 +91,133 @@ pub(super) struct PowerShellPayload {
     pub(super) firewall_profiles: Vec<RawProfile>,
 }
 
+/// Top-level v2 envelope. Every section is `#[serde(default)]` so a
+/// partial payload (e.g. CLM where the firewall section came back empty)
+/// parses without per-field optionals — a real, common outcome on
+/// hardened hosts.
+#[derive(Debug, Clone, serde::Deserialize)]
+struct PsPayload {
+    #[serde(rename = "schema_name")]
+    schema_name: String,
+    #[serde(rename = "schema_version")]
+    schema_version: u32,
+    #[serde(default, rename = "metadata")]
+    metadata: Option<PsMetadata>,
+    #[serde(default, rename = "collection_status")]
+    #[expect(
+        dead_code,
+        reason = "diagnostic surface is read for schema completeness; T21 will surface it in reports"
+    )]
+    collection_status: BTreeMap<String, PsSectionStatus>,
+    #[serde(default, rename = "diagnostics")]
+    #[expect(
+        dead_code,
+        reason = "diagnostic surface is read for schema completeness; T21 will surface it in reports"
+    )]
+    diagnostics: Vec<PsDiagnostic>,
+    #[serde(default, rename = "listening_surface")]
+    #[expect(
+        dead_code,
+        reason = "script's pre-join is ignored; the adapter reconstructs the same join from raw sections"
+    )]
+    listening_surface: Vec<PsListeningSurfaceEntry>,
+    #[serde(default, rename = "tcp_endpoints")]
+    tcp_endpoints: Vec<PsSocketEndpoint>,
+    #[serde(default, rename = "udp_endpoints")]
+    udp_endpoints: Vec<PsSocketEndpoint>,
+    #[serde(default, rename = "processes")]
+    processes: Vec<PsProcess>,
+    #[serde(default, rename = "services")]
+    services: Vec<PsService>,
+    #[serde(default, rename = "firewall_rules")]
+    firewall_rules: Vec<RawRule>,
+    #[serde(default, rename = "firewall_profiles")]
+    firewall_profiles: Vec<RawProfile>,
+}
+
+/// Host-level metadata the script records once at the top of every
+/// payload — language mode, OS, host name, and the redaction-audit
+/// booleans (`command_lines_included`, `executable_paths_included`,
+/// `service_paths_included`, `disabled_firewall_rules_included`) that
+/// prove which opt-in switches were set.
+#[derive(Debug, Clone, serde::Deserialize, Default)]
+struct PsMetadata {
+    #[serde(default, rename = "language_mode")]
+    language_mode: LanguageMode,
+    #[serde(default, rename = "power_shell_version")]
+    #[expect(dead_code, reason = "recorded by the script; no consumer needs it yet")]
+    power_shell_version: String,
+}
+
+/// One per-section status entry: `success` (with a non-zero count) or
+/// `failed` (count = 0, error captured separately in [`PsDiagnostic`]).
+#[derive(Debug, Clone, serde::Deserialize)]
+struct PsSectionStatus {
+    #[serde(rename = "status")]
+    #[expect(
+        dead_code,
+        reason = "read for schema completeness; T21 will surface it in reports"
+    )]
+    status: String,
+    #[serde(rename = "count")]
+    #[expect(
+        dead_code,
+        reason = "status string is the load-bearing field; count kept for future audit UI"
+    )]
+    count: u64,
+}
+
+/// One structured diagnostic — the same shape the script writes for
+/// per-section failures and the final-catch fatal error.
+#[derive(Debug, Clone, serde::Deserialize)]
+#[expect(
+    dead_code,
+    reason = "diagnostic surface is read for schema completeness; T21 will surface it in reports"
+)]
+struct PsDiagnostic {
+    #[serde(rename = "section")]
+    section: String,
+    #[serde(rename = "severity")]
+    severity: String,
+    #[serde(rename = "message")]
+    message: String,
+}
+
+/// One pre-joined listening-surface entry the script emits as a
+/// convenience for downstream readers that don't want to redo the
+/// endpoint→process→service join. The adapter ignores it (it builds
+/// its own join from the raw sections); this deserializer exists purely
+/// so a v2 payload can be deserialized without extra-fields being a
+/// problem.
+#[derive(Debug, Clone, serde::Deserialize)]
+#[expect(
+    dead_code,
+    reason = "script's pre-join is ignored; the adapter reconstructs the same join from raw sections"
+)]
+struct PsListeningSurfaceEntry {
+    #[serde(rename = "transport")]
+    transport: String,
+    #[serde(rename = "local_address")]
+    local_address: String,
+    #[serde(rename = "local_port")]
+    local_port: u16,
+    #[serde(rename = "owning_process")]
+    owning_process: Option<u32>,
+    #[serde(rename = "process_name")]
+    process_name: Option<String>,
+    #[serde(rename = "hosted_services")]
+    hosted_services: Vec<String>,
+    #[serde(rename = "owner_resolved")]
+    owner_resolved: bool,
+}
+
 #[derive(Debug, Clone, serde::Deserialize)]
 struct PsSocketEndpoint {
-    #[serde(rename = "LocalAddress")]
+    #[serde(rename = "local_address")]
     local_address: String,
-    #[serde(rename = "LocalPort")]
+    #[serde(rename = "local_port")]
     local_port: u16,
-    #[serde(rename = "OwningProcess")]
+    #[serde(rename = "owning_process")]
     owning_process: Option<u32>,
 }
 
@@ -86,11 +234,11 @@ impl PsSocketEndpoint {
 
 #[derive(Debug, Clone, serde::Deserialize)]
 struct PsProcess {
-    #[serde(rename = "ProcessId")]
+    #[serde(rename = "process_id")]
     process_id: u32,
-    #[serde(rename = "ExecutablePath")]
+    #[serde(rename = "executable_path")]
     executable_path: Option<String>,
-    #[serde(rename = "CommandLine")]
+    #[serde(rename = "command_line")]
     command_line: Option<String>,
 }
 
@@ -106,12 +254,18 @@ impl PsProcess {
 
 #[derive(Debug, Clone, serde::Deserialize)]
 struct PsService {
-    #[serde(rename = "Name")]
+    #[serde(rename = "name")]
     name: String,
-    #[serde(rename = "DisplayName")]
+    #[serde(rename = "display_name")]
     display_name: String,
-    #[serde(rename = "ProcessId")]
+    #[serde(rename = "process_id")]
     process_id: Option<u32>,
+    #[serde(default, rename = "path_name")]
+    #[expect(
+        dead_code,
+        reason = "script emits path_name only when -IncludeServicePath is set; T20's redaction boundary governs visibility"
+    )]
+    path_name: Option<String>,
 }
 
 impl PsService {
@@ -130,56 +284,12 @@ impl PsService {
     }
 }
 
-#[derive(Debug, Clone, serde::Deserialize)]
-#[serde(rename_all = "PascalCase")]
-struct RawPsPayload {
-    language_mode: LanguageMode,
-    #[expect(dead_code, reason = "recorded by the script; no consumer needs it yet")]
-    power_shell_version: String,
-    tcp_endpoints: Vec<PsSocketEndpoint>,
-    udp_endpoints: Vec<PsSocketEndpoint>,
-    processes: Vec<PsProcess>,
-    services: Vec<PsService>,
-    firewall_rules: Vec<RawRule>,
-    firewall_profiles: Vec<RawProfile>,
-}
-
-impl From<RawPsPayload> for PowerShellPayload {
-    fn from(raw: RawPsPayload) -> Self {
-        Self {
-            language_mode: raw.language_mode,
-            tcp_endpoints: raw
-                .tcp_endpoints
-                .into_iter()
-                .map(|endpoint| endpoint.into_raw_endpoint("tcp"))
-                .collect(),
-            udp_endpoints: raw
-                .udp_endpoints
-                .into_iter()
-                .map(|endpoint| endpoint.into_raw_endpoint("udp"))
-                .collect(),
-            processes: raw
-                .processes
-                .into_iter()
-                .map(PsProcess::into_raw_process)
-                .collect(),
-            services: raw
-                .services
-                .into_iter()
-                .map(PsService::into_hosted)
-                .collect(),
-            firewall_rules: raw.firewall_rules,
-            firewall_profiles: raw.firewall_profiles,
-        }
-    }
-}
-
 /// Markers `ConvertTo-Json` leaves behind when its `-Depth` ran out before
 /// it could fully recurse into a nested value: it falls back to that
 /// value's `.ToString()`, and for the collection/hashtable types this
 /// script's own objects are built from, that renders as one of these
 /// literal strings sitting where structured data belongs. The script
-/// always passes `-Depth 6`, so seeing one of these means something
+/// always passes `-Depth 10`, so seeing one of these means something
 /// upstream went wrong — a payload carrying one is rejected outright
 /// rather than accepted with silently missing fields.
 const DEPTH_TRUNCATION_MARKERS: [&str; 4] = [
@@ -216,17 +326,12 @@ pub(super) fn strip_bom(mut bytes: Vec<u8>) -> Vec<u8> {
 /// Decodes payload bytes to text, tolerating a non-UTF-8 host.
 ///
 /// PowerShell 5.1 Desktop writes stdout in the OEM code page by default,
-/// and while this script always requests `-Encoding utf8` for the file it
-/// writes, a string property sourced from a legacy OEM-codepage API can
-/// still carry non-UTF-8 bytes inside an otherwise-UTF-8 file. This crate
-/// has no OEM code-page conversion table (adding one is a real dependency
-/// for a rare edge case), so the fallback here is deliberately
-/// approximate: bytes that are already valid UTF-8 decode losslessly;
-/// anything else is decoded with `String::from_utf8_lossy`, replacing
-/// invalid sequences with U+FFFD rather than panicking or discarding the
-/// whole payload over a handful of unreadable characters in one field. If
-/// the lossy result still isn't valid JSON, [`parse_payload`] reports
-/// `CollectError::Parse`, same as any other malformed payload.
+/// and while this script always requests `-Encoding utf8` for the file
+/// write, a misconfigured `Out-File -Encoding utf8` can still drop
+/// non-ASCII bytes. `from_utf8_lossy` never panics and never produces
+/// invalid UTF-8 — it substitutes `U+FFFD` for any byte sequence that
+/// isn't valid UTF-8 — so a downstream JSON parse can still recover
+/// every recoverable field.
 fn decode_payload_text(bytes: &[u8]) -> String {
     match core::str::from_utf8(bytes) {
         Ok(text) => text.to_owned(),
@@ -236,17 +341,57 @@ fn decode_payload_text(bytes: &[u8]) -> String {
 
 /// Parses one collection payload from the helper script's output bytes.
 ///
-/// Strips a UTF-8 BOM, decodes with an OEM-codepage-tolerant fallback (see
-/// [`decode_payload_text`]), rejects payloads bearing evidence of
-/// insufficient `-Depth` truncation, then deserializes directly into T04's
-/// `Raw*` DTOs — no `serde_json::Value` is ever handed back to a caller.
+/// Strips a UTF-8 BOM, decodes with an OEM-codepage-tolerant fallback
+/// (see [`decode_payload_text`]), rejects payloads bearing evidence of
+/// insufficient `-Depth` truncation, then validates the v2 envelope's
+/// `schema_name`/`schema_version` before deserializing into T04's `Raw*`
+/// DTOs — no `serde_json::Value` is ever handed back to a caller.
 pub(super) fn parse_payload(bytes: &[u8]) -> Result<PowerShellPayload, CollectError> {
     let stripped = strip_bom(bytes.to_vec());
     let text = decode_payload_text(&stripped);
     reject_if_depth_truncated(&text)?;
-    let raw: RawPsPayload =
+    let envelope: PsPayload =
         serde_json::from_str(&text).map_err(|source| CollectError::Parse(source.to_string()))?;
-    Ok(PowerShellPayload::from(raw))
+    if envelope.schema_name != SUPPORTED_SCHEMA_NAME {
+        return Err(CollectError::Parse(format!(
+            "unsupported schema_name {:?} (expected {:?})",
+            envelope.schema_name, SUPPORTED_SCHEMA_NAME
+        )));
+    }
+    if envelope.schema_version != SUPPORTED_SCHEMA_VERSION {
+        return Err(CollectError::Parse(format!(
+            "unsupported schema_version {} (this parser supports only version {SUPPORTED_SCHEMA_VERSION})",
+            envelope.schema_version
+        )));
+    }
+    Ok(PowerShellPayload {
+        language_mode: envelope
+            .metadata
+            .as_ref()
+            .map_or(LanguageMode::Full, |m| m.language_mode),
+        tcp_endpoints: envelope
+            .tcp_endpoints
+            .into_iter()
+            .map(|endpoint| endpoint.into_raw_endpoint("tcp"))
+            .collect(),
+        udp_endpoints: envelope
+            .udp_endpoints
+            .into_iter()
+            .map(|endpoint| endpoint.into_raw_endpoint("udp"))
+            .collect(),
+        processes: envelope
+            .processes
+            .into_iter()
+            .map(PsProcess::into_raw_process)
+            .collect(),
+        services: envelope
+            .services
+            .into_iter()
+            .map(PsService::into_hosted)
+            .collect(),
+        firewall_rules: envelope.firewall_rules,
+        firewall_profiles: envelope.firewall_profiles,
+    })
 }
 
 #[cfg(test)]
@@ -265,6 +410,20 @@ mod tests {
         let parsed = parse_payload(raw).unwrap();
         assert!(!parsed.tcp_endpoints.is_empty());
         assert_eq!(parsed.language_mode, LanguageMode::Full);
+    }
+
+    #[test]
+    fn rejects_unknown_schema_name() {
+        let payload = br#"{"schema_name":"not-our-schema","schema_version":2}"#;
+        let err = parse_payload(payload).unwrap_err();
+        assert!(matches!(err, super::CollectError::Parse(_)));
+    }
+
+    #[test]
+    fn rejects_unknown_schema_version() {
+        let payload = br#"{"schema_name":"windows-listening-surface","schema_version":99}"#;
+        let err = parse_payload(payload).unwrap_err();
+        assert!(matches!(err, super::CollectError::Parse(_)));
     }
 
     #[test]
@@ -288,11 +447,11 @@ mod tests {
 
     #[test]
     fn non_utf8_bytes_fall_back_to_lossy_decode_instead_of_panicking() {
-        let mut bytes = br#"{"LanguageMode":"FullLanguage","PowerShellVersion":"5.1","TcpEndpoints":[],"UdpEndpoints":[],"Processes":[],"Services":[],"FirewallRules":[],"FirewallProfiles":[]}"#.to_vec();
         // Splice an invalid UTF-8 byte into a position that keeps the
         // surrounding JSON syntactically valid once lossily decoded to
         // U+FFFD -- this is not a plausible real payload, only proof the
         // decoder never panics on bad bytes and still returns a `Result`.
+        let mut bytes = br#"{"schema_name":"windows-listening-surface","schema_version":2,"metadata":{"language_mode":"FullLanguage","power_shell_version":"5.1"}}"#.to_vec();
         let splice_at = bytes.iter().position(|&b| b == b'5').unwrap();
         bytes[splice_at] = 0xFF;
         let parsed = parse_payload(&bytes).unwrap();

@@ -1,2 +1,8 @@
-//! CLI command handlers that call into `anne_de_breuil::application` use
-//! cases. Empty until T18 wires the clap subcommand surface.
+//! CLI command handlers. Each subcommand has its own file; this module
+//! just re-exports their `run` entry points so `crate::run` can dispatch.
+
+pub mod diff;
+pub mod inventory;
+pub mod report;
+pub mod scan;
+pub mod version;

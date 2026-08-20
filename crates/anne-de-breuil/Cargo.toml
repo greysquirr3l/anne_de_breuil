@@ -15,6 +15,13 @@ name = "anne_de_breuil"
 
 [dependencies]
 thiserror.workspace = true
+serde.workspace = true
+uuid.workspace = true
+time.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+proptest.workspace = true
 
 [features]
 default = ["windows-collector", "linux-collector", "report-html"]

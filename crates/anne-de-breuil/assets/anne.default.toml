@@ -1,0 +1,35 @@
+# Reference configuration for anne-de-breuil.
+#
+# This file is not read at runtime — `AnneConfig::load` layers its own
+# built-in defaults under whatever `anne.toml` and ANNE_-prefixed
+# environment variables the operator supplies. Copy this file to build a
+# starting `anne.toml`; every value below matches the built-in default
+# except `[store]`, which has no built-in default and must always be set
+# explicitly so a copied config never silently starts persisting scan data
+# somewhere unexpected.
+
+[scan]
+include_udp = false
+include_loopback = false
+skip_signature = false
+policy_store = "Local"
+
+[remote]
+concurrency = 8
+timeout = "2m"
+accept_new = false
+# known_hosts defaults to ~/.ssh/known_hosts for the user running anne;
+# uncomment to point at a different file.
+# known_hosts = "/path/to/known_hosts"
+
+[report]
+formats = ["Json", "Html"]
+output_dir = "./anne-reports"
+theme = "Auto"
+redaction = true
+
+[store]
+# backend must be one of "FileSystem" or "Sqlite" (the latter requires the
+# store-sqlite build feature). There is deliberately no default.
+backend = "FileSystem"
+path = "./anne-data/snapshots"

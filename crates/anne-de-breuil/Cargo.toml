@@ -18,6 +18,9 @@ thiserror.workspace = true
 serde.workspace = true
 uuid.workspace = true
 time.workspace = true
+figment.workspace = true
+humantime-serde.workspace = true
+home.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true

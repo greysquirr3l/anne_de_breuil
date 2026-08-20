@@ -1,0 +1,251 @@
+# Service fingerprint catalogue — DATA, not code.
+#
+# Compiled into the binary via `include_str!` and parsed once by
+# `domain::fingerprint`. Adding a new fingerprint means adding a
+# `[[fingerprint]]` table below; it never requires a Rust code change.
+#
+# `category` and `confidence` are spelled exactly as the real
+# `domain::ServiceCategory` / `domain::Confidence` enum variant names
+# (PascalCase) so they deserialize directly, with no translation layer.
+#
+# `[fingerprint.matchers]` fields are independent, corroborating signals —
+# ANY one present matcher that finds a hit is sufficient for the entry to
+# match. None are mandatory; an entry lists only the matchers that make
+# sense for the protocol it fingerprints:
+#   http_header          = { name = "...", pattern = "..." }  — header name
+#                           (case-insensitive) + regex against its value
+#   body_prefix           = "..."   — literal text; matches if any line of
+#                                     an HTTP body evidence entry starts
+#                                     with it (not a regex, so unbounded by
+#                                     construction)
+#   body_pattern           = "..."  — regex searched against an HTTP body
+#                                     evidence entry
+#   tls_subject_pattern    = "..."  — regex searched against a TLS
+#                                     certificate subject evidence entry
+#   banner_pattern         = "..."  — regex searched against a banner
+#                                     evidence entry
+#   alpn                   = [...]  — exact (case-insensitive) match against
+#                                     a negotiated ALPN protocol
+#   version_capture        = "..."  — regex with one capture group, applied
+#                                     only to the evidence that already
+#                                     matched this entry; the first capture
+#                                     found becomes the reported version
+#
+# Every regex is compiled once behind a `LazyLock` and rejected at load if
+# it fails the complexity check (see `domain::fingerprint` for what that
+# check actually is and, honestly, is not).
+
+[[fingerprint]]
+name = "node_exporter"
+category = "Monitoring"
+confidence = "Confirmed"
+[fingerprint.matchers]
+http_header = { name = "content-type", pattern = '^text/plain; version=0\.0\.4' }
+body_prefix = "node_"
+version_capture = 'node_exporter_build_info\{[^}]*version="([0-9.]+)"'
+
+[[fingerprint]]
+name = "windows_exporter"
+category = "Monitoring"
+confidence = "Confirmed"
+[fingerprint.matchers]
+http_header = { name = "content-type", pattern = '^text/plain; version=0\.0\.4' }
+body_prefix = "windows_"
+version_capture = 'windows_exporter_build_info\{[^}]*version="([0-9.]+)"'
+
+[[fingerprint]]
+name = "mssql_exporter"
+category = "Monitoring"
+confidence = "Confirmed"
+[fingerprint.matchers]
+body_prefix = "mssql_"
+version_capture = 'mssql_exporter_build_info\{[^}]*version="([0-9.]+)"'
+
+[[fingerprint]]
+name = "blackbox_exporter"
+category = "Monitoring"
+confidence = "Confirmed"
+[fingerprint.matchers]
+# blackbox_exporter's own scraped metrics are prefixed `probe_`; its
+# build-info metric is what actually names it `blackbox_exporter`.
+body_prefix = "probe_"
+version_capture = 'blackbox_exporter_build_info\{[^}]*version="([0-9.]+)"'
+
+[[fingerprint]]
+name = "postgres_exporter"
+category = "Monitoring"
+confidence = "Confirmed"
+[fingerprint.matchers]
+body_prefix = "pg_"
+version_capture = 'pg_exporter_build_info\{[^}]*version="([0-9.]+)"'
+
+[[fingerprint]]
+name = "redis_exporter"
+category = "Monitoring"
+confidence = "Confirmed"
+[fingerprint.matchers]
+body_prefix = "redis_"
+version_capture = 'redis_exporter_build_info\{[^}]*version="([0-9.]+)"'
+
+[[fingerprint]]
+name = "prometheus"
+category = "Monitoring"
+confidence = "Confirmed"
+[fingerprint.matchers]
+# Prometheus's own `/-/healthy` and `/-/ready` endpoints return exactly
+# this text, verbatim, in the real binary — most exporters expose neither
+# path, which is what actually distinguishes a Prometheus server from a
+# thing it scrapes.
+body_pattern = '^Prometheus Server is (Healthy|Ready)\.'
+
+[[fingerprint]]
+name = "alertmanager"
+category = "Monitoring"
+confidence = "Probable"
+[fingerprint.matchers]
+body_pattern = '<title>Alertmanager</title>'
+
+[[fingerprint]]
+name = "pushgateway"
+category = "Monitoring"
+confidence = "Probable"
+[fingerprint.matchers]
+body_pattern = '<title>Prometheus Pushgateway</title>'
+
+[[fingerprint]]
+name = "iis"
+category = "WebServer"
+confidence = "Confirmed"
+[fingerprint.matchers]
+http_header = { name = "server", pattern = '^Microsoft-IIS/' }
+version_capture = '^Microsoft-IIS/([0-9.]+)'
+
+[[fingerprint]]
+name = "nginx"
+category = "WebServer"
+confidence = "Confirmed"
+[fingerprint.matchers]
+http_header = { name = "server", pattern = '^nginx' }
+version_capture = '^nginx/([0-9.]+)'
+
+[[fingerprint]]
+name = "apache"
+category = "WebServer"
+confidence = "Confirmed"
+[fingerprint.matchers]
+http_header = { name = "server", pattern = '^Apache' }
+version_capture = '^Apache/([0-9.]+)'
+
+[[fingerprint]]
+name = "tomcat"
+category = "WebServer"
+confidence = "Probable"
+[fingerprint.matchers]
+http_header = { name = "server", pattern = '^Apache-Coyote' }
+body_pattern = 'Apache Tomcat/([0-9.]+)'
+version_capture = 'Apache Tomcat/([0-9.]+)'
+
+[[fingerprint]]
+name = "rdp"
+category = "RemoteAccess"
+confidence = "Heuristic"
+[fingerprint.matchers]
+# RDP with Network Level Authentication wraps CredSSP/NTLM negotiation,
+# whose messages carry the literal ASCII signature "NTLMSSP". Also seen
+# on SMB and HTTP NTLM auth, hence Heuristic rather than Probable.
+banner_pattern = 'NTLMSSP'
+
+[[fingerprint]]
+name = "winrm"
+category = "RemoteAccess"
+confidence = "Probable"
+[fingerprint.matchers]
+http_header = { name = "content-type", pattern = '^application/soap\+xml' }
+body_pattern = 'schemas\.dmtf\.org/wbem/wsman'
+
+[[fingerprint]]
+name = "samba"
+category = "FileSharing"
+confidence = "Probable"
+[fingerprint.matchers]
+# Samba reports its own version in the SMB negotiate response's
+# NativeLanMan field, e.g. "Samba 4.19.5".
+banner_pattern = '^Samba ([0-9.]+)'
+version_capture = '^Samba ([0-9.]+)'
+
+[[fingerprint]]
+name = "mssql"
+category = "Database"
+confidence = "Confirmed"
+[fingerprint.matchers]
+# SQL Server Browser's SSRP response (native UDP 1434, but relayed here as
+# generic banner evidence) is a semicolon-delimited key/value string
+# naming the instance and its exact build version.
+banner_pattern = 'ServerName;[^;]*;InstanceName;[^;]*;IsClustered;(?:Yes|No);Version;'
+version_capture = 'IsClustered;(?:Yes|No);Version;([0-9.]+)'
+
+[[fingerprint]]
+name = "redis"
+category = "Database"
+confidence = "Confirmed"
+[fingerprint.matchers]
+# Redis's own INFO command output includes "redis_version:X.Y.Z" verbatim.
+banner_pattern = 'redis_version:([0-9.]+)'
+version_capture = 'redis_version:([0-9.]+)'
+
+[[fingerprint]]
+name = "elasticsearch"
+category = "Database"
+confidence = "Confirmed"
+[fingerprint.matchers]
+# Elasticsearch's root `GET /` response always carries this exact tagline.
+body_pattern = '"tagline"\s*:\s*"You Know, for Search"'
+version_capture = '"number"\s*:\s*"([0-9.]+)"'
+
+[[fingerprint]]
+name = "grafana"
+category = "Monitoring"
+confidence = "Probable"
+[fingerprint.matchers]
+body_pattern = '<title>Grafana</title>'
+
+[[fingerprint]]
+name = "jenkins"
+category = "Other"
+confidence = "Confirmed"
+[fingerprint.matchers]
+# Jenkins sends its own version verbatim in the X-Jenkins response header
+# on every request, an unambiguous self-report.
+http_header = { name = "x-jenkins", pattern = '^[0-9.]+$' }
+version_capture = '^([0-9.]+)$'
+
+[[fingerprint]]
+name = "esxi"
+category = "Other"
+confidence = "Confirmed"
+[fingerprint.matchers]
+body_pattern = 'Welcome to VMware ESXi'
+
+[[fingerprint]]
+name = "idrac"
+category = "Other"
+confidence = "Probable"
+[fingerprint.matchers]
+body_pattern = 'Integrated Dell Remote Access Controller'
+
+[[fingerprint]]
+name = "ilo"
+category = "Other"
+confidence = "Probable"
+[fingerprint.matchers]
+body_pattern = 'Integrated Lights-Out'
+
+[[fingerprint]]
+name = "generic-appliance-login"
+category = "Other"
+confidence = "Heuristic"
+[fingerprint.matchers]
+# A weak catch-all: a bare password login form is worth surfacing even
+# when nothing more specific matched, on the theory that an unidentified
+# appliance admin UI is itself the finding.
+body_pattern = '<input[^>]*type="password"'

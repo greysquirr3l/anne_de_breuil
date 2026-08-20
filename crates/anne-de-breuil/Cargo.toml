@@ -28,6 +28,7 @@ async-trait.workspace = true
 blake3.workspace = true
 reqwest.workspace = true
 ipnet.workspace = true
+regex.workspace = true
 rustls.workspace = true
 tokio-rustls.workspace = true
 x509-parser.workspace = true

@@ -1,0 +1,36 @@
+# HELP go_gc_duration_seconds A summary of the pause duration of garbage collection cycles.
+# TYPE go_gc_duration_seconds summary
+go_gc_duration_seconds{quantile="0"} 8.4e-06
+go_gc_duration_seconds{quantile="0.25"} 1.31e-05
+go_gc_duration_seconds{quantile="0.5"} 1.86e-05
+go_gc_duration_seconds{quantile="0.75"} 2.94e-05
+go_gc_duration_seconds{quantile="1"} 7.02e-05
+go_gc_duration_seconds_sum 0.003193888
+go_gc_duration_seconds_count 142
+# HELP go_goroutines Number of goroutines that currently exist.
+# TYPE go_goroutines gauge
+go_goroutines 8
+# HELP node_boot_time_seconds Node boot time, in unixtime.
+# TYPE node_boot_time_seconds gauge
+node_boot_time_seconds 1.7238528e+09
+# HELP node_cpu_seconds_total Seconds the CPUs spent in each mode.
+# TYPE node_cpu_seconds_total counter
+node_cpu_seconds_total{cpu="0",mode="idle"} 182734.56
+node_cpu_seconds_total{cpu="0",mode="iowait"} 812.44
+node_cpu_seconds_total{cpu="0",mode="system"} 4213.11
+node_cpu_seconds_total{cpu="0",mode="user"} 9021.02
+# HELP node_exporter_build_info A metric with a constant '1' value labeled by version, revision, branch, goversion, and goos from which node_exporter was built.
+# TYPE node_exporter_build_info gauge
+node_exporter_build_info{branch="HEAD",goversion="go1.22.5",revision="f1e6b28b1c7d",version="1.8.2"} 1
+# HELP node_filesystem_avail_bytes Filesystem space available to non-root users in bytes.
+# TYPE node_filesystem_avail_bytes gauge
+node_filesystem_avail_bytes{device="/dev/sda1",fstype="ext4",mountpoint="/"} 4.28934912e+10
+# HELP node_load1 1m load average.
+# TYPE node_load1 gauge
+node_load1 0.12
+# HELP node_memory_MemAvailable_bytes Memory information field MemAvailable_bytes.
+# TYPE node_memory_MemAvailable_bytes gauge
+node_memory_MemAvailable_bytes 6.442450944e+09
+# HELP node_network_receive_bytes_total Network device statistic receive_bytes.
+# TYPE node_network_receive_bytes_total counter
+node_network_receive_bytes_total{device="eth0"} 1.834928374e+09

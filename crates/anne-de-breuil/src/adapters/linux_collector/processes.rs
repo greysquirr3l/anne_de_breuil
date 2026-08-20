@@ -18,13 +18,16 @@ use sysinfo::System;
 use tokio::sync::Mutex as AsyncMutex;
 
 use super::services::hosted_services_for_pid;
-use crate::application::collect::{CollectError, ProcessResolver, RawProcess, RawService};
+use crate::application::collect::{
+    CollectError, ProcessResolver, RawProcess, RawService, RedactionPolicy,
+};
 use crate::domain::ProcessId;
 
 /// Resolves processes via `sysinfo`, enriching each with `/proc/<pid>/exe`'s
 /// resolved target; caches the snapshot after its first successful query.
 pub struct LinuxProcessResolver {
     processes: AsyncMutex<Option<Arc<HashMap<u32, RawProcess>>>>,
+    redaction: RedactionPolicy,
 }
 
 impl LinuxProcessResolver {
@@ -34,7 +37,20 @@ impl LinuxProcessResolver {
     pub const fn new() -> Self {
         Self {
             processes: AsyncMutex::const_new(None),
+            redaction: RedactionPolicy::default(),
         }
+    }
+
+    /// Builds a resolver that opts in to one or more sensitive-field
+    /// categories via the [`RedactionPolicy`]. Mirrors
+    /// `PowerShellCollector::with_redaction_policy` so the same flag on
+    /// both platforms produces a snapshot with the same omission
+    /// semantics — `include_command_line = false` means
+    /// `RawProcess.command_line == None` on Windows _and_ Linux.
+    #[must_use]
+    pub fn with_redaction_policy(mut self, redaction: RedactionPolicy) -> Self {
+        self.redaction = redaction;
+        self
     }
 
     async fn process_snapshot(&self) -> Result<Arc<HashMap<u32, RawProcess>>, CollectError> {
@@ -45,7 +61,8 @@ impl LinuxProcessResolver {
             }
         }
 
-        let map = tokio::task::spawn_blocking(build_process_map)
+        let redaction = self.redaction;
+        let map = tokio::task::spawn_blocking(move || build_process_map(redaction))
             .await
             .map_err(|source| CollectError::Parse(source.to_string()))?;
         let map = Arc::new(map);
@@ -76,16 +93,24 @@ impl ProcessResolver for LinuxProcessResolver {
     }
 }
 
-fn build_process_map() -> HashMap<u32, RawProcess> {
+fn build_process_map(redaction: RedactionPolicy) -> HashMap<u32, RawProcess> {
     let system = System::new_all();
     system
         .processes()
         .iter()
         .map(|(pid, process)| {
             let raw_pid = pid.as_u32();
-            let path = resolved_exe_path(raw_pid)
-                .or_else(|| process.exe().map(|exe| exe.display().to_string()));
-            let command_line = command_line_of(process);
+            let path = if redaction.include_executable_path {
+                resolved_exe_path(raw_pid)
+                    .or_else(|| process.exe().map(|exe| exe.display().to_string()))
+            } else {
+                None
+            };
+            let command_line = if redaction.include_command_line {
+                command_line_of(process)
+            } else {
+                None
+            };
             (
                 raw_pid,
                 RawProcess {

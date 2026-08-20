@@ -33,7 +33,7 @@ use tokio::sync::Mutex as AsyncMutex;
 use self::payload::{LanguageMode, PowerShellPayload, parse_payload, strip_bom};
 use crate::application::collect::{
     CollectError, EndpointSource, FirewallPolicySource, ProcessResolver, RawEndpoint, RawProcess,
-    RawProfile, RawRule, RawService, SignatureVerifier,
+    RawProfile, RawRule, RawService, RedactionPolicy, SignatureVerifier,
 };
 use crate::domain::{ProcessId, ProcessPath, SignatureStatus};
 
@@ -60,7 +60,7 @@ enum Backend {
 }
 
 impl Backend {
-    fn command(&self, out_path: &std::path::Path) -> Command {
+    fn command(&self, out_path: &std::path::Path, redaction: RedactionPolicy) -> Command {
         match self {
             Self::PowerShell {
                 script_path,
@@ -81,6 +81,18 @@ impl Backend {
                     .arg(script_path)
                     .arg("-OutputPath")
                     .arg(out_path);
+                if redaction.include_command_line {
+                    cmd.arg("-IncludeCommandLine");
+                }
+                if redaction.include_executable_path {
+                    cmd.arg("-IncludeExecutablePath");
+                }
+                if redaction.include_service_path {
+                    cmd.arg("-IncludeServicePath");
+                }
+                if redaction.include_disabled_firewall_rules {
+                    cmd.arg("-IncludeDisabledFirewallRules");
+                }
                 cmd
             }
             #[cfg(test)]
@@ -105,6 +117,7 @@ impl Backend {
 pub struct PowerShellCollector {
     backend: Backend,
     timeout: Duration,
+    redaction: RedactionPolicy,
     child_running: Arc<AtomicBool>,
     cached: AsyncMutex<Option<Arc<PowerShellPayload>>>,
 }
@@ -129,9 +142,21 @@ impl PowerShellCollector {
                 execution_policy_bypass: false,
             },
             timeout,
+            redaction: RedactionPolicy::default(),
             child_running: Arc::new(AtomicBool::new(false)),
             cached: AsyncMutex::new(None),
         })
+    }
+
+    /// Builds a collector that opts in to one or more sensitive-field
+    /// categories via the [`RedactionPolicy`]. Off by default — a
+    /// collector constructed via [`Self::new`] never surfaces command
+    /// lines, executable paths, service `PathName` values, or disabled
+    /// firewall rules to a caller.
+    #[must_use]
+    pub const fn with_redaction_policy(mut self, redaction: RedactionPolicy) -> Self {
+        self.redaction = redaction;
+        self
     }
 
     /// Builds a collector that passes `-ExecutionPolicy Bypass` to every
@@ -154,6 +179,7 @@ impl PowerShellCollector {
                 execution_policy_bypass: true,
             },
             timeout,
+            redaction: RedactionPolicy::default(),
             child_running: Arc::new(AtomicBool::new(false)),
             cached: AsyncMutex::new(None),
         })
@@ -171,6 +197,7 @@ impl PowerShellCollector {
                 args: vec!["5".into()],
             },
             timeout,
+            redaction: RedactionPolicy::default(),
             child_running: Arc::new(AtomicBool::new(false)),
             cached: AsyncMutex::new(None),
         }
@@ -188,7 +215,7 @@ impl PowerShellCollector {
 
         let mut child = self
             .backend
-            .command(&out_path)
+            .command(&out_path, self.redaction)
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
             .kill_on_drop(true)
@@ -375,7 +402,10 @@ mod tests {
             script_path: std::path::PathBuf::from("/tmp/does-not-matter.ps1"),
             execution_policy_bypass: false,
         };
-        let cmd = backend.command(std::path::Path::new("/tmp/out.json"));
+        let cmd = backend.command(
+            std::path::Path::new("/tmp/out.json"),
+            super::RedactionPolicy::default(),
+        );
         let args: Vec<String> = cmd
             .as_std()
             .get_args()
@@ -390,7 +420,10 @@ mod tests {
             script_path: std::path::PathBuf::from("/tmp/does-not-matter.ps1"),
             execution_policy_bypass: true,
         };
-        let cmd = backend.command(std::path::Path::new("/tmp/out.json"));
+        let cmd = backend.command(
+            std::path::Path::new("/tmp/out.json"),
+            super::RedactionPolicy::default(),
+        );
         let args: Vec<String> = cmd
             .as_std()
             .get_args()

@@ -94,6 +94,41 @@ pub struct RawService {
     pub display_name: String,
 }
 
+/// Operator-controlled opt-in switches for fields that can carry
+/// credentials, tokens, install paths, or other sensitive content.
+///
+/// Every field defaults to `false` (omit), so a collector built with
+/// `RedactionPolicy::default()` will never surface a command line, an
+/// executable path, a service's `PathName`, or a disabled firewall rule
+/// to a caller. Opting in is a deliberate builder call on the
+/// collector, not a global setting — see
+/// [`super::super::adapters::powershell_collector::PowerShellCollector::with_redaction_policy`]
+/// and the matching builder on
+/// [`super::super::adapters::linux_collector::LinuxProcessResolver`].
+///
+/// Cross-platform parity is the whole point: the same flag on Windows
+/// and Linux must mean the same thing, so a `--include-command-line`
+/// CLI switch on `anne scan` produces a snapshot whose Windows and
+/// Linux contributions have the same shape and the same omission
+/// semantics.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct RedactionPolicy {
+    /// Include process command lines. Off by default — command lines
+    /// routinely carry credentials, connection strings, and tokens.
+    pub include_command_line: bool,
+    /// Include process executable paths. Off by default — install
+    /// paths can leak customer names and sensitive directory layouts.
+    pub include_executable_path: bool,
+    /// Include service `PathName` values (the systemd `ExecStart=` or
+    /// Windows service `PathName`). Off by default — these can carry
+    /// arguments and embedded secrets.
+    pub include_service_path: bool,
+    /// Include firewall rules that are present but disabled. Off by
+    /// default — disabled rules don't shape connectivity, but their
+    /// `program_filter`/`service_filter` strings can still leak.
+    pub include_disabled_firewall_rules: bool,
+}
+
 /// Adapter-facing DTO for one firewall rule.
 ///
 /// Fields carry the platform's raw text (e.g. `direction: "Inbound"`,

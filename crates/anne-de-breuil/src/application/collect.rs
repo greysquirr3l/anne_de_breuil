@@ -84,18 +84,51 @@ pub struct RawService {
 
 /// Adapter-facing DTO for one firewall rule.
 ///
-/// Empty for now: this trait's shape is fixed ahead of any platform
-/// adapter, but the real rule fields are Windows Firewall/`nftables`-specific
-/// and belong to the adapters that implement [`FirewallPolicySource`]
-/// (T05/T06/T07) — not invented speculatively here.
+/// Fields carry the platform's raw text (e.g. `direction: "Inbound"`,
+/// `action: "Allow"`) rather than the parsed [`crate::domain::Direction`]/
+/// [`crate::domain::RuleAction`] enums — like every other `Raw*` type here,
+/// parsing into domain value objects happens once, at the collection
+/// boundary, not in the adapter. `protocol`/`local_port_spec`/
+/// `program_filter`/`service_filter` are `None` when the rule carries no
+/// matching filter of that kind (e.g. a rule with no port filter applies
+/// to every port).
 #[derive(Debug, Clone, serde::Deserialize)]
-pub struct RawRule {}
+pub struct RawRule {
+    /// The rule's platform-native identifier (Windows Firewall `InstanceID`,
+    /// or a synthesised id on platforms with no native rule GUID).
+    pub rule_id: String,
+    /// Human-readable rule name, for display only — never matched on.
+    pub display_name: String,
+    /// Traffic direction the rule governs, as the platform reports it (e.g. `"Inbound"`).
+    pub direction: String,
+    /// Whether the rule allows or blocks matching traffic, as the platform reports it (e.g. `"Allow"`).
+    pub action: String,
+    /// Transport protocol the rule's port filter applies to, if it has one.
+    pub protocol: Option<String>,
+    /// The rule's local-port filter text (e.g. `"443"`, `"5000-5010"`), if it has one.
+    pub local_port_spec: Option<String>,
+    /// The executable path the rule is scoped to, if it has a program filter.
+    pub program_filter: Option<String>,
+    /// The service name the rule is scoped to, if it has a service filter.
+    pub service_filter: Option<String>,
+    /// Whether the rule is currently enabled.
+    pub enabled: bool,
+    /// Where this rule's definition originates, as the platform reports it (e.g. `"Local"`, `"GroupPolicy"`).
+    pub policy_store: String,
+}
 
 /// Adapter-facing DTO for one firewall profile (e.g. Domain/Private/Public).
-///
-/// Empty for now, for the same reason as [`RawRule`].
 #[derive(Debug, Clone, serde::Deserialize)]
-pub struct RawProfile {}
+pub struct RawProfile {
+    /// The profile's name, as the platform reports it (e.g. `"Domain"`, `"Private"`, `"Public"`).
+    pub name: String,
+    /// Whether the firewall is enabled for this profile.
+    pub enabled: bool,
+    /// The default action for inbound traffic no rule explicitly covers, as the platform reports it.
+    pub default_inbound_action: String,
+    /// The default action for outbound traffic no rule explicitly covers, as the platform reports it.
+    pub default_outbound_action: String,
+}
 
 /// Source of the raw listening-socket table for one host.
 ///
@@ -689,8 +722,24 @@ mod tests {
     async fn firewall_policy_source_fake_returns_seeded_rules_and_profiles() {
         let sources = FakeCollectorSet {
             firewall: FakeFirewallPolicySource {
-                rules: vec![RawRule {}],
-                profiles: vec![RawProfile {}],
+                rules: vec![RawRule {
+                    rule_id: "{11111111-1111-1111-1111-111111111111}".to_owned(),
+                    display_name: "Allow HTTPS".to_owned(),
+                    direction: "Inbound".to_owned(),
+                    action: "Allow".to_owned(),
+                    protocol: Some("TCP".to_owned()),
+                    local_port_spec: Some("443".to_owned()),
+                    program_filter: None,
+                    service_filter: None,
+                    enabled: true,
+                    policy_store: "Local".to_owned(),
+                }],
+                profiles: vec![RawProfile {
+                    name: "Public".to_owned(),
+                    enabled: true,
+                    default_inbound_action: "Block".to_owned(),
+                    default_outbound_action: "Allow".to_owned(),
+                }],
             },
             ..FakeCollectorSet::default()
         };

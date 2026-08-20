@@ -1,0 +1,33 @@
+{
+  "LanguageMode": "ConstrainedLanguage",
+  "PowerShellVersion": "5.1.19041.3803",
+  "TcpEndpoints": [
+    {
+      "LocalAddress": "0.0.0.0",
+      "LocalPort": 443,
+      "OwningProcess": 5288,
+      "State": "Listen"
+    }
+  ],
+  "UdpEndpoints": [],
+  "Processes": [
+    {
+      "ProcessId": 5288,
+      "Name": "w3wp.exe",
+      "ExecutablePath": "C:\\Windows\\System32\\inetsrv\\w3wp.exe",
+      "CommandLine": "c:\\windows\\system32\\inetsrv\\w3wp.exe -ap \"DefaultAppPool\""
+    }
+  ],
+  "Services": [
+    {
+      "Name": "W3SVC",
+      "DisplayName": "World Wide Web Publishing Service",
+      "ProcessId": 5288,
+      "State": "Running",
+      "PathName": "C:\\Windows\\System32\\inetsrv\\inetinfo.exe",
+      "StartMode": "Auto"
+    }
+  ],
+  "FirewallRules": [],
+  "FirewallProfiles": []
+}

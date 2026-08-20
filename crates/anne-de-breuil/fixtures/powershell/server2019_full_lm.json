@@ -1,0 +1,141 @@
+{
+  "LanguageMode": "FullLanguage",
+  "PowerShellVersion": "5.1.17763.4131",
+  "TcpEndpoints": [
+    {
+      "LocalAddress": "0.0.0.0",
+      "LocalPort": 443,
+      "OwningProcess": 4104,
+      "State": "Listen"
+    },
+    {
+      "LocalAddress": "0.0.0.0",
+      "LocalPort": 3389,
+      "OwningProcess": 812,
+      "State": "Listen"
+    },
+    {
+      "LocalAddress": "::",
+      "LocalPort": 445,
+      "OwningProcess": 4,
+      "State": "Listen"
+    }
+  ],
+  "UdpEndpoints": [
+    {
+      "LocalAddress": "0.0.0.0",
+      "LocalPort": 123,
+      "OwningProcess": 1108
+    }
+  ],
+  "Processes": [
+    {
+      "ProcessId": 4104,
+      "Name": "w3wp.exe",
+      "ExecutablePath": "C:\\Windows\\System32\\inetsrv\\w3wp.exe",
+      "CommandLine": "c:\\windows\\system32\\inetsrv\\w3wp.exe -ap \"DefaultAppPool\""
+    },
+    {
+      "ProcessId": 812,
+      "Name": "svchost.exe",
+      "ExecutablePath": "C:\\Windows\\System32\\svchost.exe",
+      "CommandLine": "C:\\Windows\\system32\\svchost.exe -k termsvcs -p"
+    },
+    {
+      "ProcessId": 4,
+      "Name": "System",
+      "ExecutablePath": null,
+      "CommandLine": null
+    },
+    {
+      "ProcessId": 1108,
+      "Name": "svchost.exe",
+      "ExecutablePath": "C:\\Windows\\System32\\svchost.exe",
+      "CommandLine": "C:\\Windows\\system32\\svchost.exe -k LocalServiceNetworkRestricted -p -s W32Time"
+    }
+  ],
+  "Services": [
+    {
+      "Name": "W3SVC",
+      "DisplayName": "World Wide Web Publishing Service",
+      "ProcessId": 4104,
+      "State": "Running",
+      "PathName": "C:\\Windows\\System32\\inetsrv\\inetinfo.exe",
+      "StartMode": "Auto"
+    },
+    {
+      "Name": "TermService",
+      "DisplayName": "Remote Desktop Services",
+      "ProcessId": 812,
+      "State": "Running",
+      "PathName": "C:\\Windows\\system32\\svchost.exe -k termsvcs -p",
+      "StartMode": "Manual"
+    },
+    {
+      "Name": "W32Time",
+      "DisplayName": "Windows Time",
+      "ProcessId": 1108,
+      "State": "Running",
+      "PathName": "C:\\Windows\\system32\\svchost.exe -k LocalServiceNetworkRestricted -p -s W32Time",
+      "StartMode": "Manual"
+    }
+  ],
+  "FirewallRules": [
+    {
+      "rule_id": "{7C7F6C3E-1B7B-4B0A-9C1D-3A5E2F9B0A11}",
+      "display_name": "World Wide Web Services (HTTPS Traffic-In)",
+      "direction": "Inbound",
+      "action": "Allow",
+      "protocol": "TCP",
+      "local_port_spec": "443",
+      "program_filter": "C:\\Windows\\System32\\inetsrv\\w3wp.exe",
+      "service_filter": null,
+      "enabled": true,
+      "policy_store": "Local"
+    },
+    {
+      "rule_id": "{8D8F7D4F-2C8C-4C1B-8D2E-4B6F3A0C1B22}",
+      "display_name": "Remote Desktop - User Mode (TCP-In)",
+      "direction": "Inbound",
+      "action": "Allow",
+      "protocol": "TCP",
+      "local_port_spec": "3389",
+      "program_filter": null,
+      "service_filter": "TermService",
+      "enabled": true,
+      "policy_store": "GroupPolicy"
+    },
+    {
+      "rule_id": "{9E9F8E5F-3D9D-4D2C-9E3F-5C7F4B1D2C33}",
+      "display_name": "Block Legacy SMBv1",
+      "direction": "Inbound",
+      "action": "Block",
+      "protocol": "TCP",
+      "local_port_spec": "445",
+      "program_filter": null,
+      "service_filter": null,
+      "enabled": false,
+      "policy_store": "Local"
+    }
+  ],
+  "FirewallProfiles": [
+    {
+      "name": "Domain",
+      "enabled": true,
+      "default_inbound_action": "Block",
+      "default_outbound_action": "Allow"
+    },
+    {
+      "name": "Private",
+      "enabled": true,
+      "default_inbound_action": "Block",
+      "default_outbound_action": "Allow"
+    },
+    {
+      "name": "Public",
+      "enabled": true,
+      "default_inbound_action": "Block",
+      "default_outbound_action": "Allow"
+    }
+  ]
+}

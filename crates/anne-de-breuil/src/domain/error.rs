@@ -46,4 +46,14 @@ pub enum DomainError {
     /// The input was not a recognised firewall policy store origin.
     #[error("unknown policy store: {0}")]
     UnknownPolicyStore(String),
+
+    /// A `ServiceIdentity` was constructed with no supporting evidence.
+    #[error("a ServiceIdentity requires at least one Evidence entry")]
+    MissingEvidence,
+
+    /// A `ServiceIdentity` claimed a confidence above `Confidence::Assigned`
+    /// while backed only by `Evidence::PortAssignment` entries. A registry
+    /// number match alone can never justify more than the weakest tier.
+    #[error("a port-registry match alone cannot justify confidence above Assigned")]
+    OverconfidentFromPortAlone,
 }

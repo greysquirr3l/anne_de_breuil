@@ -1,0 +1,28 @@
+# Provenance record for `iana-port-registry.tsv`.
+#
+# This file is metadata only — nothing in the crate parses it at runtime.
+# It exists so a human (or the refresh procedure documented in
+# `crates/anne-de-breuil/src/domain/port_registry.rs`) can see at a glance
+# how stale the vendored snapshot is.
+
+source_url = "https://www.iana.org/assignments/service-names-port-numbers/service-names-port-numbers.csv"
+fetched_at = "2026-08-20T03:11:59Z"
+registry_last_modified = "2026-08-18T02:06:26Z"
+raw_row_count = 15402
+processed_row_count = 11239
+format = "TSV: port\\tprotocol\\tservice_name\\tdescription, one row per (port, protocol) pair, no header row"
+
+[processing]
+description = """
+Rows were kept only if: the port number is a single valid integer in
+1..=65535 (range rows like "20-21" are dropped), the transport protocol is
+exactly "tcp" or "udp" (sctp/dccp/blank rows are dropped), the Service Name
+column is non-empty, and the Description is not "Reserved", "Unassigned",
+or blank. The source file lists the same (port, protocol) pair under
+several aliases in some cases (e.g. port 80/tcp appears as "http", "www",
+and "www-http", the latter two explicitly marked in the registry's own
+Assignment Notes as duplicates of "http"); the registry is already sorted
+by ascending port number with the canonical/oldest name listed first for
+each pair, so the first occurrence of each (port, protocol) pair was kept
+and later duplicates dropped.
+"""

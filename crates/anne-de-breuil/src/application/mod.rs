@@ -12,10 +12,15 @@
 //! declares the [`remote::RemoteTransport`] port: push/exec/remove against
 //! a remote host, optional to the design — a host with no working
 //! implementation degrades to [`remote::TargetStrategy::Probe`], never a
-//! hard failure.
+//! hard failure. [`fanout`] is the orchestration layer above all of the
+//! above: bounded-concurrency fan-out across an inventory of hosts, behind
+//! the [`fanout::HostScanner`] port so the orchestration logic itself
+//! stays testable against fakes, independent of which real collection
+//! pipeline eventually backs it.
 
 pub mod clock;
 pub mod collect;
+pub mod fanout;
 pub mod identify;
 pub mod remote;
 pub mod snapshot_store;
@@ -25,6 +30,10 @@ pub use collect::{
     CollectError, CollectedEndpoint, CollectorSet, EndpointSource, FirewallPolicySource,
     ProcessAttribution, ProcessResolver, RawEndpoint, RawProcess, RawProfile, RawRule, RawService,
     SignatureVerifier, collect_endpoints,
+};
+pub use fanout::{
+    DEFAULT_CONCURRENCY, DEFAULT_PER_HOST_TIMEOUT, HostError, HostOutcome, HostResult, HostScanner,
+    NullProgressReporter, ProgressReporter, run_fanout,
 };
 pub use identify::{ProbeConfig, ProbeError, ProbeExclusions, Prober};
 pub use remote::{

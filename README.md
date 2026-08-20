@@ -86,3 +86,51 @@ cross-compiled release build path is covered by the packaging/release task.
 
 `deny.toml` configures `cargo-deny` for advisory, license, ban, and source
 checks. `cargo audit` covers the RUSTSEC advisory database independently.
+
+## Fonts (report-html)
+
+The self-contained HTML report embeds four subsetted WOFF2 faces — no
+external font requests, ever — compiled in via `include_bytes!` behind the
+`report-html` feature (`crates/anne-de-breuil/src/adapters/fonts.rs`).
+Vendored output lives in `crates/anne-de-breuil/assets/fonts/` and is
+committed; the upstream source faces used to produce it are not.
+
+**One-time setup** — populate `fonts-src/` (gitignored) manually from the
+official upstream repositories:
+
+```
+fonts-src/
+  instrument-serif/InstrumentSerif-Regular.ttf   # https://github.com/Instrument/instrument-serif
+  instrument-serif/OFL.txt
+  geist/Geist-Regular.ttf                        # https://github.com/vercel/geist-font
+  geist/Geist-Medium.ttf
+  geist/OFL.txt
+  geist-mono/GeistMono-Regular.ttf               # https://github.com/vercel/geist-font
+  geist-mono/OFL.txt
+```
+
+Install the subsetting toolchain once:
+
+```bash
+brew install harfbuzz woff2       # macOS
+# or: apt install harfbuzz-utils woff2  (harfbuzz-tools on some distros)
+```
+
+**Re-subsetting** — after updating `fonts-src/`, or to reproduce the
+currently vendored output:
+
+```bash
+cargo run -p xtask -- vendor-fonts
+```
+
+This shells out to `hb-subset` + `woff2_compress` on the local machine,
+subsets each source face to Latin + digits + the punctuation the report
+templates actually emit (`xtask/src/vendor_fonts.rs::SUBSET_UNICODES`),
+writes the `.woff2` output into `crates/anne-de-breuil/assets/fonts/`, and
+rewrites `manifest.toml` with the resulting SHA-256 digests. It never
+touches the network — the fetch into `fonts-src/` is a separate, manual,
+documented step, deliberately kept out of any build script.
+
+Both font families are OFL 1.1. License texts are committed beside the
+binaries (`OFL-instrument-serif.txt`, `OFL-geist.txt`) and reproduced in
+full in `THIRD_PARTY_LICENSES.md` at the repository root.

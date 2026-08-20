@@ -106,6 +106,16 @@ pub enum ProbeError {
     /// Building the underlying HTTP client failed.
     #[error("building probe client failed: {0}")]
     ClientBuild(String),
+    /// The TLS handshake with the target could not be completed at all —
+    /// a genuine connection or protocol-negotiation failure (unreachable
+    /// host, connect timeout, no mutually supported protocol version).
+    ///
+    /// Never returned for a certificate the target presents but which
+    /// fails ordinary validation (self-signed, expired, hostname
+    /// mismatch) — those are captured as evidence, not treated as
+    /// failures. See [`crate::adapters::tls_probe`].
+    #[error("tls handshake failed: {0}")]
+    Handshake(String),
 }
 
 /// Probes one endpoint for evidence of the service behind it.

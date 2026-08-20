@@ -39,6 +39,15 @@ pub enum Evidence {
         /// The certificate subject string.
         subject: String,
     },
+    /// A protocol was advertised via TLS ALPN negotiation.
+    ///
+    /// `h2`/`grpc` specifically imply an HTTP/2 or gRPC service behind a
+    /// plain TCP port — strong evidence for service fingerprinting, kept
+    /// as its own typed variant rather than buried in a display string.
+    AlpnProtocol {
+        /// The negotiated ALPN protocol identifier, e.g. `"h2"`.
+        protocol: String,
+    },
     /// The owning process's name matched an expected value.
     ProcessName {
         /// The observed process name.

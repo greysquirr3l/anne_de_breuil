@@ -5,8 +5,10 @@
 //! bypassed) certificate validation, and nothing else. Never any HTTP
 //! method but GET, never a redirect followed off the connecting host,
 //! never credentials sent. Deep TLS certificate-chain inspection with
-//! relaxed validation is explicitly out of scope here — see the
-//! `// TODO(T10)` at the handshake-failure branch below.
+//! relaxed validation is out of scope here by design — this prober's own
+//! HTTPS attempt keeps normal validation always on. See
+//! [`crate::adapters::tls_probe::TlsProber`] for the sibling prober that
+//! does the relaxed-validation inspection, confined to its own module.
 
 use std::collections::HashMap;
 use std::net::IpAddr;
@@ -209,11 +211,12 @@ impl Prober for HttpProber {
                 // A failed handshake (including one rejected because the
                 // target presents a self-signed/untrusted certificate) is
                 // itself a valid T09-scope outcome, not an error to work
-                // around. Never relax certificate validation to see more.
+                // around. Never relax certificate validation to see more —
+                // that inspection lives in the deliberately separate
+                // `TlsProber`, confined to its own module.
                 evidence.push(Evidence::BannerMatch {
                     pattern: "tls-handshake:failed".to_owned(),
                 });
-                // TODO(T10): deep certificate chain capture without validation
             }
         }
 

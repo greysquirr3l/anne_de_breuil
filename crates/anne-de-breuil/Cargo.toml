@@ -28,7 +28,10 @@ async-trait.workspace = true
 blake3.workspace = true
 reqwest.workspace = true
 ipnet.workspace = true
-sha2 = { workspace = true, optional = true }
+rustls.workspace = true
+tokio-rustls.workspace = true
+x509-parser.workspace = true
+sha2.workspace = true
 base64 = { workspace = true, optional = true }
 rusqlite = { workspace = true, optional = true }
 netstat2 = { workspace = true, optional = true }
@@ -60,12 +63,13 @@ netlink-sys = { workspace = true, optional = true }
 [dev-dependencies]
 proptest.workspace = true
 tempfile.workspace = true
+rcgen = "0.14"
 
 [features]
 default = ["windows-collector", "linux-collector", "report-html"]
 windows-collector = ["dep:netstat2", "dep:sysinfo", "dep:wmi", "dep:windows"]
 linux-collector = ["dep:netstat2", "dep:sysinfo", "dep:netlink-sys"]
 ssh = []
-report-html = ["dep:sha2", "dep:base64"]
+report-html = ["dep:base64"]
 store-sqlite = ["dep:rusqlite"]
 portal = []

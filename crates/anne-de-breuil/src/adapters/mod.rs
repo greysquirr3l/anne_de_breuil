@@ -30,12 +30,20 @@
 //! read `/proc` are `#[cfg(target_os = "linux")]`-gated. [`inventory`] is
 //! the eighth: parsing an operator-authored TOML inventory file of remote
 //! hosts into typed value objects, always compiled in since inventory
-//! parsing has no platform dependency.
+//! parsing has no platform dependency. [`tls_probe`] is the ninth: a
+//! second [`crate::application::identify::Prober`] implementation, sibling
+//! to [`prober::HttpProber`], that completes TLS handshakes and inspects
+//! whatever certificate chain the target presents, including a chain that
+//! fails ordinary validation — that's the finding, not a reason to abort.
+//! Its non-validating `ClientConfig` is confined to a private submodule
+//! unreachable from anywhere else in this tree; see that module's own doc
+//! comment for the confinement mechanism and its enforcing test.
 
 pub mod config;
 pub mod inventory;
 pub mod prober;
 pub mod snapshot_store;
+pub mod tls_probe;
 
 #[cfg(feature = "report-html")]
 pub mod fonts;

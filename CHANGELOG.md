@@ -82,15 +82,31 @@ LocalCollectorGuard)` tuple today, with the `LocalCollectorGuard`
   can drop in without changing the call site.
   [`crates/anne-de-breuil-cli/src/adapters/collector_factory.rs`](crates/anne-de-breuil-cli/src/adapters/collector_factory.rs).
 
-- **PowerShell v2 collector draft** (`T05`, draft) — 855-line
-  PowerShell 5.1 + PowerShell 7 compatible, Constrained Language Mode
-  friendly, no `Add-Type` / reflection / `New-Object` / static .NET
-  calls, bulk firewall-filter queries, stable arrays for zero/one/many
-  results, section-level collection status and diagnostics. Kept at
-  the workspace root pending the T31 wiring that will compile it into
-  the binary as the embedded signed helper.
-  [`collect-v2.ps1`](collect-v2.ps1), with the operator-facing
-  sensitivity contract in [`collect-v2.txt`](collect-v2.txt).
+- **PowerShell v2 helper shipped and wired** (`T05b`) — the v1 helper
+  script (`assets/collect.ps1`, 131 lines) is replaced by a v2 envelope
+  (855 lines) with schema versioning, atomic publication, per-section
+  status and diagnostics, opt-in redaction of command lines / executable
+  paths / service `PathName` / disabled firewall rules, and an output
+  size cap. The Rust parser is rewritten to read snake_case field
+  names, route on `schema_name`/`schema_version` (rejecting unknown
+  versions outright, not silently coercing), and tolerate partial
+  payloads (real on CLM hosts where `NetSecurity` isn't allowlisted).
+  All three on-disk fixtures are migrated in lockstep.
+- **`RedactionPolicy` builder on both platforms** (`T05b`) — a single
+  `RedactionPolicy { include_command_line, include_executable_path,
+include_service_path, include_disabled_firewall_rules }` struct
+  (all default `false`) gates sensitive-field collection on Windows
+  _and_ Linux, so the same operator flag on both platforms produces
+  a snapshot with the same omission semantics. `PowerShellCollector::
+with_redaction_policy` and `LinuxProcessResolver::
+with_redaction_policy` are the two consumers.
+- **Operator-facing rationale in docs** — the v2 design rationale
+  formerly at `collect-v2.txt` lives at
+  [`docs/dev/collect-v2-rationale.md`](docs/dev/collect-v2-rationale.md),
+  alongside the other dev docs. The workspace-root `collect-v2.ps1` /
+  `collect-v2.txt` draft files are gone — T05b's exit criteria
+  required they be deleted once the script shipped to its proper
+  location.
 
 - **Workspace dependency wiring** — `clap` (with `derive`, `env`),
   `tracing`, `tracing-subscriber` (with `env-filter`, `fmt`, `json`),
@@ -103,10 +119,24 @@ LocalCollectorGuard)` tuple today, with the `LocalCollectorGuard`
   and `crates/anne-de-breuil-cli/src/application/mod.rs` extended to
   expose the new subcommand handlers and the
   `adapters::collector_factory::local_collectors` selector.
+- **`PowerShellCollector` argv builder** — `Backend::command` now
+  accepts a `RedactionPolicy` and adds the matching `-Include*`
+  switches as discrete `Command::arg(...)` calls (never a single
+  concatenated string, so a flag value can't be confused for a new
+  argv element). The v1 parser was the only consumer of the old
+  signature; test-only `Backend::Fixed` arm ignores the policy.
+- **`LinuxProcessResolver::build_process_map`** — reads
+  `/proc/<pid>/exe` and `/proc/<pid>/cmdline` only when the
+  corresponding `RedactionPolicy` opt-in flag is set. Under default
+  policy, `RawProcess.path == None` and `RawProcess.command_line ==
+None` for every process — matching Windows, matching the audit
+  guarantee.
 
 ### Removed
 
-_None._
+- **Workspace-root `collect-v2.ps1` / `collect-v2.txt`** — T05b's
+  exit criteria required moving them into `assets/` and
+  `docs/dev/` respectively, then deleting the originals. Done.
 
 ### Fixed
 
@@ -116,6 +146,18 @@ _None._
   `cast_sign_loss` without an `#[allow]`. The `ExitCode::as_i32`
   accessor and its unit-test pair were dropped in favour of direct
   `Variant as i32` discriminant checks in the test.
+- **Script diagnostic gap** — the v1 helper script's catch block
+  silently set `$published = $false`; the parent got exit 1 and a
+  missing file, no error message. The v2 catch block writes a
+  structured `{section:'Fatal', severity:'Error', message,
+script_stack_trace}` envelope to stderr via `Write-Error`, so
+  the parent can distinguish exit-1-with-reason from
+  exit-1-no-info.
+- **Script output size cap** — added `-MaxOutputBytes` (default 8
+  MiB, range 1 KiB..100 MiB); the script refuses to publish when
+  serialized JSON exceeds the cap and exits 1. Closes the
+  "parent reads an unexpectedly large file" gap before it ever
+  opens.
 
 ### Security
 
@@ -127,6 +169,13 @@ _None._
   forces stdout = exactly one `ScanSnapshot` JSON; every `tracing`
   event goes to stderr. A `--emit-json` run can never leak log lines
   into a downstream parser's stdin.
+- **Redaction-by-default on every collector** — `command_line`,
+  `executable_path`, and `PathName` are absent from `RawProcess` /
+  `RawService` by default on Windows _and_ Linux, gated behind a
+  deliberate `RedactionPolicy::with_redaction_policy(...)` builder
+  call. The PowerShell script records which switches were set in
+  the payload's `Metadata` block, so a downstream auditor can prove
+  what was and wasn't collected.
 
 ---
 

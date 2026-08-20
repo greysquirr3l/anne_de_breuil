@@ -1,4 +1,5 @@
 [graph]
+all-features = true
 targets = [
   "x86_64-pc-windows-msvc",
   "aarch64-pc-windows-msvc",
@@ -13,7 +14,14 @@ db-path = "~/.cargo/advisory-db"
 yanked = "deny"
 
 [licenses]
-allow = ["MIT", "Apache-2.0", "Unicode-3.0", "BSD-3-Clause"]
+# BSD-2-Clause and Zlib added for T12, both OSI-approved/FSF Free/Libre
+# and at least as permissive as the licenses already allowed here:
+# - BSD-2-Clause: `blake3` (content-addressing the snapshot store)
+#   unconditionally depends on `arrayref`, regardless of feature
+#   selection.
+# - Zlib: `rusqlite` (feature `store-sqlite`) pulls in `hashbrown` via
+#   `hashlink`, and `hashbrown`'s default hasher `foldhash` is Zlib.
+allow = ["MIT", "Apache-2.0", "Unicode-3.0", "BSD-3-Clause", "BSD-2-Clause", "Zlib"]
 confidence-threshold = 0.8
 
 [bans]

@@ -16,17 +16,22 @@ name = "anne_de_breuil"
 [dependencies]
 thiserror.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 uuid.workspace = true
 time.workspace = true
 figment.workspace = true
 humantime-serde.workspace = true
 home.workspace = true
+tokio.workspace = true
+async-trait.workspace = true
+blake3.workspace = true
 sha2 = { workspace = true, optional = true }
 base64 = { workspace = true, optional = true }
+rusqlite = { workspace = true, optional = true }
 
 [dev-dependencies]
-serde_json.workspace = true
 proptest.workspace = true
+tempfile.workspace = true
 
 [features]
 default = ["windows-collector", "linux-collector", "report-html"]
@@ -34,5 +39,5 @@ windows-collector = []
 linux-collector = []
 ssh = []
 report-html = ["dep:sha2", "dep:base64"]
-store-sqlite = []
+store-sqlite = ["dep:rusqlite"]
 portal = []

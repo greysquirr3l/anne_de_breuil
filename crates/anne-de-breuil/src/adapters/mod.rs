@@ -8,9 +8,12 @@
 //! real adapter-boundary concern: parsing untrusted TOML/env input into
 //! typed configuration value objects. [`fonts`] is the second: vendored
 //! WOFF2 assets compiled in behind `report-html`, so a collector-only
-//! build carries none of that payload.
+//! build carries none of that payload. [`snapshot_store`] is the third:
+//! filesystem and (behind `store-sqlite`) `SQLite` implementations of the
+//! [`crate::application::SnapshotStore`] port.
 
 pub mod config;
+pub mod snapshot_store;
 
 #[cfg(feature = "report-html")]
 pub mod fonts;

@@ -21,7 +21,26 @@ yanked = "deny"
 #   selection.
 # - Zlib: `rusqlite` (feature `store-sqlite`) pulls in `hashbrown` via
 #   `hashlink`, and `hashbrown`'s default hasher `foldhash` is Zlib.
-allow = ["MIT", "Apache-2.0", "Unicode-3.0", "BSD-3-Clause", "BSD-2-Clause", "Zlib"]
+# ISC and CDLA-Permissive-2.0 added for T09 (`reqwest` with the
+# `rustls-tls` feature, chosen specifically to avoid an OpenSSL/native-tls
+# dependency for cross-platform static builds):
+# - ISC: `ring`, `rustls-webpki`, `untrusted` — OSI-approved and FSF
+#   Free/Libre, functionally equivalent to MIT/BSD-2-Clause.
+# - CDLA-Permissive-2.0: `webpki-roots` (the vendored Mozilla root CA
+#   bundle `rustls-tls`'s default TLS verification relies on) — a
+#   permissive open-data license, not a copyleft software license; no
+#   different in effect from the other permissive licenses already
+#   allowed here.
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "Unicode-3.0",
+  "BSD-3-Clause",
+  "BSD-2-Clause",
+  "Zlib",
+  "ISC",
+  "CDLA-Permissive-2.0",
+]
 confidence-threshold = 0.8
 
 [bans]

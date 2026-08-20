@@ -10,9 +10,13 @@
 //! WOFF2 assets compiled in behind `report-html`, so a collector-only
 //! build carries none of that payload. [`snapshot_store`] is the third:
 //! filesystem and (behind `store-sqlite`) `SQLite` implementations of the
-//! [`crate::application::SnapshotStore`] port.
+//! [`crate::application::SnapshotStore`] port. [`prober`] is the fourth:
+//! [`crate::application::identify::Prober`] implemented against `reqwest`
+//! — always compiled in, since probing is a runtime opt-in behind a future
+//! `--probe` CLI flag, not a Cargo feature.
 
 pub mod config;
+pub mod prober;
 pub mod snapshot_store;
 
 #[cfg(feature = "report-html")]

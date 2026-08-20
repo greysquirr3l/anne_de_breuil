@@ -8,6 +8,7 @@
 pub mod attribution;
 pub mod bind_address;
 pub mod confidence;
+pub mod drift;
 pub mod endpoint;
 pub mod error;
 pub mod events;
@@ -33,6 +34,7 @@ pub mod snapshot;
 pub use attribution::Attribution;
 pub use bind_address::BindAddress;
 pub use confidence::Confidence;
+pub use drift::{DriftEntry, DriftKind, DriftReport, EndpointKey, Severity, diff, severity_for};
 pub use endpoint::Endpoint;
 pub use error::DomainError;
 pub use events::{

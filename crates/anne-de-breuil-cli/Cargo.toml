@@ -17,3 +17,22 @@ path = "src/main.rs"
 [dependencies]
 anne-de-breuil.workspace = true
 anyhow.workspace = true
+async-trait.workspace = true
+clap.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+serde_json.workspace = true
+time = { workspace = true }
+
+[build-dependencies]
+# `set_build_env_var` re-runs the build script whenever HEAD moves, so the
+# embedded SHA in `anne --version` stays current without `cargo clean`.
+# No transitive dev-dependencies beyond the workspace `time` crate (already
+# pulled by the library); nothing else is required for `Command::new("git").
+time = { workspace = true }
+
+[dev-dependencies]
+assert_cmd.workspace = true
+predicates.workspace = true
+serde_json.workspace = true

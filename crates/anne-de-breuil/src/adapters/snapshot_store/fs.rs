@@ -242,10 +242,10 @@ mod tests {
     use crate::domain::port::Port;
     use crate::domain::protocol::Protocol;
     use crate::domain::publisher::SignatureStatus;
-    use crate::domain::{Endpoint, HostId, IdempotencyKey, ScanId, ScanSnapshot};
+    use crate::domain::{Endpoint, HostId, IdempotencyKey, ScanId, ScanSnapshot, TargetStrategy};
 
     mod fixtures {
-        use super::{HostId, ScanId, ScanSnapshot};
+        use super::{HostId, ScanId, ScanSnapshot, TargetStrategy};
         use crate::adapters::snapshot_store::FsSnapshotStore;
 
         pub(super) fn temp_fs_store() -> (tempfile::TempDir, FsSnapshotStore) {
@@ -263,6 +263,7 @@ mod tests {
                 vec![super::endpoint_fixture()],
                 vec![],
                 vec![],
+                TargetStrategy::LocalOnly,
             )
         }
 
@@ -374,6 +375,7 @@ mod tests {
             vec![],
             vec![],
             vec![],
+            TargetStrategy::LocalOnly,
         );
         let snap_a2 = ScanSnapshot::new(
             host_a,
@@ -383,6 +385,7 @@ mod tests {
             vec![endpoint_fixture()],
             vec![],
             vec![],
+            TargetStrategy::LocalOnly,
         );
         let snap_b = ScanSnapshot::new(
             host_b,
@@ -392,6 +395,7 @@ mod tests {
             vec![],
             vec![],
             vec![],
+            TargetStrategy::LocalOnly,
         );
 
         let id_a1 = store

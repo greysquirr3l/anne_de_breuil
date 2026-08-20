@@ -1,0 +1,27 @@
+# Fixture inventory for adapters::inventory tests.
+#
+# Three hosts, each authenticating a different way, one routed through a
+# jump host, one carrying tags. No secret material anywhere in this file —
+# see AuthMethod's doc comment for why that's a hard guarantee, not just a
+# convention followed here.
+
+[[host]]
+host_id = "11111111-1111-1111-1111-111111111111"
+address = "10.0.0.10"
+port = 22
+auth = "agent"
+tags = ["web", "prod"]
+
+[[host]]
+host_id = "22222222-2222-2222-2222-222222222222"
+address = "bastion.internal"
+port = 22
+auth = { key_file = "/home/ops/.ssh/id_ed25519" }
+jump = "10.0.0.10"
+tags = ["bastion"]
+
+[[host]]
+host_id = "33333333-3333-3333-3333-333333333333"
+address = "db1.internal"
+port = 2222
+auth = { key_from_keyring = "anne/db1" }

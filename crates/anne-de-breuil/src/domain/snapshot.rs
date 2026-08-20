@@ -4,6 +4,7 @@ use crate::domain::endpoint::Endpoint;
 use crate::domain::firewall_rule::FirewallRule;
 use crate::domain::ids::{HostId, ScanId};
 use crate::domain::profile::ProfileState;
+use crate::domain::target_strategy::TargetStrategy;
 
 /// The complete, self-contained result of one scan of one host.
 ///
@@ -29,12 +30,22 @@ pub struct ScanSnapshot {
     pub firewall_rules: Vec<FirewallRule>,
     /// Observed firewall profile states, sorted by profile kind.
     pub profiles: Vec<ProfileState>,
+    /// Which collection tier produced this snapshot — a report reader must
+    /// never have to guess whether a host section is authoritative or
+    /// inferred. See [`TargetStrategy`].
+    pub strategy: TargetStrategy,
 }
 
 impl ScanSnapshot {
     /// Builds a snapshot, sorting every collection by its stable key so
     /// construction order never affects serialized output.
     #[must_use]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "one parameter per field keeps every ScanSnapshot field explicit at every call \
+                  site; a builder would let a caller construct a half-filled snapshot, which is \
+                  exactly the ambiguity this type exists to rule out"
+    )]
     pub fn new(
         host_id: HostId,
         scan_id: ScanId,
@@ -43,6 +54,7 @@ impl ScanSnapshot {
         mut endpoints: Vec<Endpoint>,
         mut firewall_rules: Vec<FirewallRule>,
         mut profiles: Vec<ProfileState>,
+        strategy: TargetStrategy,
     ) -> Self {
         endpoints.sort_by_key(Endpoint::sort_key);
         firewall_rules.sort_by_key(FirewallRule::sort_key);
@@ -55,6 +67,7 @@ impl ScanSnapshot {
             endpoints,
             firewall_rules,
             profiles,
+            strategy,
         }
     }
 }
@@ -101,6 +114,7 @@ mod tests {
             endpoints,
             vec![],
             vec![],
+            TargetStrategy::LocalOnly,
         )
     }
 
@@ -140,6 +154,7 @@ mod tests {
             sample_endpoints(),
             vec![],
             vec![],
+            TargetStrategy::LocalOnly,
         );
         let b = ScanSnapshot::new(
             host_id,
@@ -149,6 +164,7 @@ mod tests {
             shuffled,
             vec![],
             vec![],
+            TargetStrategy::LocalOnly,
         );
 
         assert_eq!(

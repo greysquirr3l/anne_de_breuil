@@ -1,0 +1,11 @@
+# Fixture inventory for adapters::inventory::tests::unknown_field_is_rejected.
+#
+# Otherwise identical to valid.toml's first host, plus one field
+# (`environment`) that InventoryHost does not declare and must reject.
+
+[[host]]
+host_id = "11111111-1111-1111-1111-111111111111"
+address = "10.0.0.10"
+port = 22
+auth = "agent"
+environment = "production"

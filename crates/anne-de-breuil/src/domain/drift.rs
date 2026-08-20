@@ -288,6 +288,7 @@ mod tests {
     use crate::domain::port_spec::PortSpec;
     use crate::domain::process::ProcessPath;
     use crate::domain::publisher::{PublisherName, SignatureStatus};
+    use crate::domain::target_strategy::TargetStrategy;
 
     fn endpoint_at(protocol: Protocol, addr: &str, port: u16) -> Endpoint {
         Endpoint::new(
@@ -310,6 +311,7 @@ mod tests {
             endpoints,
             firewall_rules,
             vec![],
+            TargetStrategy::LocalOnly,
         )
     }
 

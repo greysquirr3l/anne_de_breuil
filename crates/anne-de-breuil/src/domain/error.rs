@@ -56,4 +56,8 @@ pub enum DomainError {
     /// number match alone can never justify more than the weakest tier.
     #[error("a port-registry match alone cannot justify confidence above Assigned")]
     OverconfidentFromPortAlone,
+
+    /// The input was neither a valid IP address nor a syntactically valid hostname.
+    #[error("invalid host address: {0}")]
+    InvalidHostAddress(String),
 }

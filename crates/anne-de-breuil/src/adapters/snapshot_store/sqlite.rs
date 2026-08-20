@@ -229,6 +229,7 @@ mod tests {
     use crate::domain::port::Port;
     use crate::domain::protocol::Protocol;
     use crate::domain::publisher::SignatureStatus;
+    use crate::domain::target_strategy::TargetStrategy;
 
     fn sample_snapshot() -> ScanSnapshot {
         ScanSnapshot::new(
@@ -247,6 +248,7 @@ mod tests {
             )],
             vec![],
             vec![],
+            TargetStrategy::LocalOnly,
         )
     }
 

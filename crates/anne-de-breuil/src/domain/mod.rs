@@ -15,6 +15,7 @@ pub mod events;
 pub mod evidence;
 pub mod exposure;
 pub mod firewall_rule;
+pub mod host_address;
 pub mod ids;
 pub mod mismatch;
 pub mod policy_store;
@@ -30,6 +31,7 @@ pub mod service;
 pub mod service_category;
 pub mod service_identity;
 pub mod snapshot;
+pub mod target_strategy;
 
 pub use attribution::Attribution;
 pub use bind_address::BindAddress;
@@ -43,6 +45,7 @@ pub use events::{
 pub use evidence::Evidence;
 pub use exposure::Exposure;
 pub use firewall_rule::{Direction, FirewallRule, RuleAction};
+pub use host_address::HostAddress;
 pub use ids::{HostId, IdempotencyKey, ProcessId, RuleId, ScanId};
 pub use mismatch::{MismatchedAssignment, detect_mismatch};
 pub use policy_store::PolicyStore;
@@ -58,3 +61,4 @@ pub use service::ServiceName;
 pub use service_category::ServiceCategory;
 pub use service_identity::ServiceIdentity;
 pub use snapshot::ScanSnapshot;
+pub use target_strategy::TargetStrategy;

@@ -27,9 +27,13 @@
 //! (`/proc/net` socket-table parsing, cgroup-to-systemd-unit extraction,
 //! nftables netlink wire framing) compiles and is fixture-tested on any
 //! host, while the concrete adapter structs that actually open sockets or
-//! read `/proc` are `#[cfg(target_os = "linux")]`-gated.
+//! read `/proc` are `#[cfg(target_os = "linux")]`-gated. [`inventory`] is
+//! the eighth: parsing an operator-authored TOML inventory file of remote
+//! hosts into typed value objects, always compiled in since inventory
+//! parsing has no platform dependency.
 
 pub mod config;
+pub mod inventory;
 pub mod prober;
 pub mod snapshot_store;
 

@@ -8,11 +8,16 @@
 //! collector ports a platform adapter must satisfy, and the handler that
 //! turns their raw output into [`crate::domain`] value objects. [`identify`]
 //! declares the [`identify::Prober`] port: bounded, opt-in active probing
-//! that produces [`crate::domain::Evidence`], never a verdict.
+//! that produces [`crate::domain::Evidence`], never a verdict. [`remote`]
+//! declares the [`remote::RemoteTransport`] port: push/exec/remove against
+//! a remote host, optional to the design — a host with no working
+//! implementation degrades to [`remote::TargetStrategy::Probe`], never a
+//! hard failure.
 
 pub mod clock;
 pub mod collect;
 pub mod identify;
+pub mod remote;
 pub mod snapshot_store;
 
 pub use clock::Clock;
@@ -22,4 +27,7 @@ pub use collect::{
     SignatureVerifier, collect_endpoints,
 };
 pub use identify::{ProbeConfig, ProbeError, ProbeExclusions, Prober};
+pub use remote::{
+    ExecOutput, RemoteCommand, RemotePath, RemoteTransport, TargetStrategy, TransportError,
+};
 pub use snapshot_store::{SnapshotStore, StoreError};

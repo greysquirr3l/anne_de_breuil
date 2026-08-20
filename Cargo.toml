@@ -27,6 +27,7 @@ uuid = { version = "1", features = ["v4", "serde"] }
 time = { version = "0.3", features = ["serde"] }
 proptest = "1"
 figment = { version = "0.10.19", features = ["toml", "env"] }
+toml = "0.8.23"
 humantime-serde = "1.1.1"
 home = "0.5.12"
 sha2 = "0.11.0"

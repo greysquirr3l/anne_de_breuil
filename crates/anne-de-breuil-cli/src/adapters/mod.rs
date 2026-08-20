@@ -1,2 +1,4 @@
-//! Binary-local adapters, e.g. the terminal `ProgressReporter` (T19).
-//! Empty stub.
+//! Binary-local adapters: the cross-platform local-collector factory for
+//! `anne scan`.
+
+pub mod collector_factory;

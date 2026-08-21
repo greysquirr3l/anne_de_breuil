@@ -20,24 +20,42 @@ use ipnet::IpNet;
 
 use crate::domain::{Endpoint, Evidence};
 
+/// Cloud-provider instance-metadata endpoints. Reachable only from the
+/// instance itself, and a standard SSRF pivot for stealing that instance's
+/// IAM/managed-identity credentials once *any* outbound fetch on its behalf
+/// can be aimed here — see T30's `docs/security-hardening-review.md`.
+/// `169.254.169.254` is the AWS/Azure/GCP link-local metadata address;
+/// `169.254.170.2` is AWS ECS's task metadata endpoint (a distinct address
+/// from the EC2 instance one, reachable from inside a container even when
+/// the host's own EC2 metadata endpoint is firewalled off).
+const DEFAULT_EXCLUDED_CIDRS: &[&str] = &["169.254.169.254/32", "169.254.170.2/32"];
+
 /// Ports and address ranges a probe run must never connect to.
 ///
 /// Checked before any socket connects. Industrial, medical, and legacy
 /// appliance endpoints can be destabilised by a bare TCP connect; the
 /// operator needs a way to say so ahead of the run, not after.
-#[derive(Debug, Clone, Default)]
+///
+/// The cloud-metadata CIDRs above are folded into every instance of this
+/// type, including operator-supplied ones built via [`ProbeExclusions::new`]
+/// — an operator naming their own `--probe-exclude` ranges still gets the
+/// metadata exclusion for free, and there is no constructor that can build
+/// a [`ProbeExclusions`] without it.
+#[derive(Debug, Clone)]
 pub struct ProbeExclusions {
     ports: HashSet<u16>,
     cidrs: Vec<IpNet>,
 }
 
 impl ProbeExclusions {
-    /// Builds an exclusion set from explicit ports and CIDR ranges.
+    /// Builds an exclusion set from explicit ports and CIDR ranges, always
+    /// including the cloud-metadata default exclusions on top of whatever
+    /// `cidrs` the caller supplies.
     #[must_use]
     pub fn new(ports: impl IntoIterator<Item = u16>, cidrs: Vec<IpNet>) -> Self {
         Self {
             ports: ports.into_iter().collect(),
-            cidrs,
+            cidrs: default_excluded_cidrs().chain(cidrs).collect(),
         }
     }
 
@@ -46,6 +64,22 @@ impl ProbeExclusions {
     pub fn excludes(&self, addr: IpAddr, port: u16) -> bool {
         self.ports.contains(&port) || self.cidrs.iter().any(|cidr| cidr.contains(&addr))
     }
+}
+
+impl Default for ProbeExclusions {
+    fn default() -> Self {
+        Self::new(std::iter::empty(), Vec::new())
+    }
+}
+
+/// Parses [`DEFAULT_EXCLUDED_CIDRS`]. `.ok()` rather than `.expect()` on
+/// each entry — a malformed literal here should degrade to "one fewer
+/// default exclusion," never panic a probe run over a typo in this
+/// module's own constant.
+fn default_excluded_cidrs() -> impl Iterator<Item = IpNet> {
+    DEFAULT_EXCLUDED_CIDRS
+        .iter()
+        .filter_map(|raw| raw.parse().ok())
 }
 
 /// Bounds every probe run must respect.
@@ -150,4 +184,33 @@ pub trait Prober: Send + Sync {
     /// configured exclusions, or [`ProbeError::HostBudgetExhausted`] if the
     /// endpoint's host has already exhausted its probe budget.
     async fn probe(&self, endpoint: &Endpoint) -> Result<Vec<Evidence>, ProbeError>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ProbeExclusions;
+
+    #[test]
+    fn cloud_metadata_address_excluded_by_default() {
+        let exclusions = ProbeExclusions::default();
+        assert!(exclusions.excludes("169.254.169.254".parse().unwrap(), 80));
+        assert!(exclusions.excludes("169.254.170.2".parse().unwrap(), 443));
+    }
+
+    #[test]
+    fn cloud_metadata_exclusion_holds_even_with_operator_supplied_exclusions() {
+        // An operator naming their own `--probe-exclude` ranges via `new`
+        // must not lose the metadata default as a side effect — this is
+        // the "always-on, no flags required" property the fix guarantees.
+        let exclusions = ProbeExclusions::new([8080], vec!["10.0.0.0/8".parse().unwrap()]);
+        assert!(exclusions.excludes("169.254.169.254".parse().unwrap(), 80));
+        assert!(exclusions.excludes("10.0.0.5".parse().unwrap(), 1));
+        assert!(exclusions.excludes("1.2.3.4".parse().unwrap(), 8080));
+    }
+
+    #[test]
+    fn an_ordinary_public_address_is_not_excluded() {
+        let exclusions = ProbeExclusions::default();
+        assert!(!exclusions.excludes("93.184.216.34".parse().unwrap(), 443));
+    }
 }

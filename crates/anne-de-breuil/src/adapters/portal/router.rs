@@ -421,6 +421,27 @@ mod tests {
             .expect("request completes")
     }
 
+    /// Same as [`get`] but with `X-Forwarded-Proto: https` set, the signal
+    /// `security_headers::apply` needs before it will add
+    /// `Strict-Transport-Security` — see that module's own doc comment for
+    /// why HSTS is conditional rather than unconditional on this router.
+    async fn get_as_if_behind_a_tls_proxy(
+        app: &axum::Router,
+        uri: &str,
+        bearer: Option<&str>,
+    ) -> axum::response::Response {
+        let mut builder = Request::builder()
+            .uri(uri)
+            .header("x-forwarded-proto", "https");
+        if let Some(token) = bearer {
+            builder = builder.header("authorization", format!("Bearer {token}"));
+        }
+        app.clone()
+            .oneshot(builder.body(Body::empty()).expect("valid request"))
+            .await
+            .expect("request completes")
+    }
+
     #[tokio::test]
     async fn every_route_rejects_an_unauthenticated_request() {
         let host = HostId::generate();
@@ -520,6 +541,53 @@ mod tests {
         let response = get(&app, "/", None).await;
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
         assert!(response.headers().contains_key("content-security-policy"));
+    }
+
+    /// T30's own exit criterion: security headers verified by an
+    /// integration test against the *real* portal router, not just
+    /// `security_headers`'s own isolated single-route test app. Checks all
+    /// four headers the task names (CSP, X-Content-Type-Options,
+    /// X-Frame-Options) plus the conditional HSTS header, driven through
+    /// `router()` with a real `AuthContext` so this exercises the actual
+    /// production layering order, not a stand-in.
+    #[tokio::test]
+    async fn all_security_headers_present_on_the_real_router() {
+        let host = HostId::generate();
+        let app = test_app(host, vec![]);
+
+        let response = get(&app, "/", Some("test-secret-value")).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let headers = response.headers();
+        assert!(headers.contains_key("content-security-policy"));
+        assert!(headers.contains_key("x-content-type-options"));
+        assert!(headers.contains_key("x-frame-options"));
+        assert!(
+            !headers.contains_key("strict-transport-security"),
+            "HSTS must not be sent when nothing upstream claims TLS happened"
+        );
+
+        let https_response =
+            get_as_if_behind_a_tls_proxy(&app, "/", Some("test-secret-value")).await;
+        assert_eq!(https_response.status(), StatusCode::OK);
+        assert!(
+            https_response
+                .headers()
+                .contains_key("strict-transport-security"),
+            "HSTS must be sent once a TLS-terminating proxy says the original hop was https"
+        );
+    }
+
+    /// T30's own exit criterion, adapted to this codebase's real attack
+    /// surface: there is no user-facing file-upload endpoint anywhere on
+    /// this portal (see `docs/security-hardening-review.md`). This proves
+    /// the absence is structural — the route table in `router()` above
+    /// simply has no `/ingest` entry — rather than an untested assumption.
+    #[tokio::test]
+    async fn portal_upload_endpoint_does_not_exist_by_default() {
+        let host = HostId::generate();
+        let app = test_app(host, vec![]);
+        let response = get(&app, "/ingest", Some("test-secret-value")).await;
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]

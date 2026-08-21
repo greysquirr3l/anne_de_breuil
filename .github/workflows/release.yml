@@ -50,6 +50,16 @@ jobs:
       - name: Install cargo-xwin
         run: cargo install cargo-xwin
 
+      # Needed before the cross-build steps below, not just before
+      # "Verify no dynamic CRT import": cc-rs invokes `llvm-lib` (from this
+      # same apt package) to archive the C sources `ring` compiles for the
+      # MSVC target via clang-cl, and fails with "failed to find tool
+      # 'llvm-lib'" if this hasn't run yet. Verified against a real
+      # ubuntu-latest run -- moving this later, after the cross-builds,
+      # broke both `cargo xwin build` steps.
+      - name: Install llvm tools (llvm-lib, llvm-objdump)
+        run: sudo apt-get update && sudo apt-get install -y llvm
+
       # xwin cross-builds both MSVC targets on an ubuntu-latest runner --
       # faster and deterministic compared to a native windows-latest build,
       # and it's link-only (import libs, not execution), so a real
@@ -66,9 +76,6 @@ jobs:
       # nor the VC++ Redistributable installed. This is the automated
       # check for that -- a dynamic VCRUNTIME/MSVCP import here means the
       # rustflag silently didn't apply.
-      - name: Install llvm-objdump
-        run: sudo apt-get update && sudo apt-get install -y llvm
-
       - name: Verify no dynamic CRT import
         run: |
           cargo run -p xtask -- verify-static target/x86_64-pc-windows-msvc/release/anne.exe

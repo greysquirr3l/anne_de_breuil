@@ -398,16 +398,41 @@ const DEPTH_TRUNCATION_MARKERS: [&str; 4] = [
     "System.Management.Automation.PSCustomObject",
 ];
 
+/// Nearest valid `str` char boundary at or after `index` — a truncation
+/// marker's surrounding bytes can land mid-codepoint if a nearby field
+/// happens to carry non-ASCII text, and slicing on a non-boundary panics.
+fn char_boundary_at_or_after(text: &str, mut index: usize) -> usize {
+    while index < text.len() && !text.is_char_boundary(index) {
+        index += 1;
+    }
+    index
+}
+
 fn reject_if_depth_truncated(text: &str) -> Result<(), CollectError> {
-    if let Some(marker) = DEPTH_TRUNCATION_MARKERS
+    let Some(marker) = DEPTH_TRUNCATION_MARKERS
         .iter()
         .find(|marker| text.contains(**marker))
-    {
-        return Err(CollectError::Parse(format!(
-            "payload looks truncated by insufficient -Depth (found {marker:?} where structured data was expected)"
-        )));
-    }
-    Ok(())
+    else {
+        return Ok(());
+    };
+    // A snippet of surrounding JSON, not just the marker itself: this is
+    // the only way a real CI failure (no live Windows box to reproduce
+    // against) reveals *which* field the helper script left unconverted,
+    // rather than only that depth truncation happened somewhere in a
+    // multi-kilobyte payload.
+    const CONTEXT_RADIUS: usize = 200;
+    let context = text.find(marker).map(|marker_index| {
+        let start = char_boundary_at_or_after(text, marker_index.saturating_sub(CONTEXT_RADIUS));
+        let end = char_boundary_at_or_after(
+            text,
+            (marker_index + marker.len() + CONTEXT_RADIUS).min(text.len()),
+        );
+        &text[start..end]
+    });
+    Err(CollectError::Parse(format!(
+        "payload looks truncated by insufficient -Depth (found {marker:?} where structured \
+         data was expected); context: {context:?}"
+    )))
 }
 
 /// Strips a leading UTF-8 byte-order mark, if present.

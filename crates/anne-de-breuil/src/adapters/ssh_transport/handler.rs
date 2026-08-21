@@ -120,9 +120,53 @@ async fn authenticate_via_agent(
     handle: &mut Handle<ClientHandler>,
     user: &str,
 ) -> Result<AuthResult, TransportError> {
-    let mut agent = AgentClient::connect_env()
+    let mut agent = connect_agent().await?;
+    offer_agent_identities(handle, user, &mut agent).await
+}
+
+/// Connects to this machine's ambient ssh-agent: a Unix-domain socket
+/// named by `SSH_AUTH_SOCK` on Unix, a running Pageant instance on
+/// Windows -- `russh` itself only implements these two ambient-agent
+/// mechanisms (`AgentClient::connect_env`/`AgentClient::connect_pageant`,
+/// each `#[cfg]`-gated to the platform it applies to), so there is no
+/// single unconditional constructor to call here. Returning `impl
+/// AsyncRead + AsyncWrite + Unpin + Send` rather than naming either
+/// stream type keeps `pageant`'s `PageantStream` out of this crate's own
+/// dependency graph entirely -- `russh` already depends on it for us on
+/// Windows.
+#[cfg(unix)]
+async fn connect_agent() -> Result<
+    AgentClient<impl tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send>,
+    TransportError,
+> {
+    AgentClient::connect_env()
         .await
-        .map_err(|err| TransportError::Connect(format!("connecting to ssh-agent: {err}")))?;
+        .map_err(|err| TransportError::Connect(format!("connecting to ssh-agent: {err}")))
+}
+
+/// See [`connect_agent`]'s doc comment above (the `#[cfg(unix)]` sibling
+/// of this function) for why this is split by platform.
+#[cfg(windows)]
+async fn connect_agent() -> Result<
+    AgentClient<impl tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send>,
+    TransportError,
+> {
+    AgentClient::connect_pageant()
+        .await
+        .map_err(|err| TransportError::Connect(format!("connecting to Pageant ssh-agent: {err}")))
+}
+
+/// The platform-independent half of [`authenticate_via_agent`]: given an
+/// already-connected agent (either stream type), offers every identity it
+/// holds until the server accepts one.
+async fn offer_agent_identities<S>(
+    handle: &mut Handle<ClientHandler>,
+    user: &str,
+    agent: &mut AgentClient<S>,
+) -> Result<AuthResult, TransportError>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send,
+{
     let identities = agent
         .request_identities()
         .await
@@ -142,7 +186,7 @@ async fn authenticate_via_agent(
             .map_err(TransportError::from)?
             .flatten();
         let result = handle
-            .authenticate_publickey_with(user, key, hash_alg, &mut agent)
+            .authenticate_publickey_with(user, key, hash_alg, agent)
             .await
             .map_err(|err| TransportError::Connect(format!("ssh-agent signing failed: {err}")))?;
         if result.success() {

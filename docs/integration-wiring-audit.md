@@ -202,6 +202,15 @@ separate, large feature from "build the remote `HostScanner`," which is
 what the user's confirmed scope for this session was. Flagged here as the
 single largest remaining wiring gap in the codebase.
 
+**Resolved in a later, non-numbered follow-up.** `collector_factory.rs`
+now constructs `LinuxCollectors` directly on Linux and
+`PowerShellCollector`-preferring-`WindowsNativeCollectorSet`-fallback on
+Windows; the stub remains only for platforms this project never scoped a
+collector for (macOS chief among them). See `PROGRESS.md`'s "Local
+collector wiring" `Codebase State` entry for the full account, including
+one real PowerShell payload/schema mismatch found but left unfixed as its
+own distinct, still-open gap.
+
 ### `--target` remains a documented no-op
 
 `--target <host>` only ever carries a bare hostname — there is no CLI

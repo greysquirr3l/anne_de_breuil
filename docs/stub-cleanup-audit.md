@@ -407,3 +407,9 @@ feature-complete" is not an honest description of `anne-de-breuil` as it
 stands. The tool's most basic invocation (a plain local scan) does not yet
 collect real data, and that gap is the one future work on this project
 should reach for first.
+
+**Update, later non-numbered follow-up:** the local-scan gap named above
+is closed — `collector_factory.rs` now constructs real Linux/Windows
+collectors, and `scan_local` wires `inbound_rules`/`profiles` through to
+the snapshot. See `PROGRESS.md`'s "Local collector wiring" `Codebase
+State` entry. Every other item in the list above is still open.

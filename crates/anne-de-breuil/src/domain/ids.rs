@@ -78,6 +78,25 @@ uuid_id!(
     "Identifies one firewall rule, synthesised by the collecting adapter if the platform has no native rule GUID."
 );
 
+impl RuleId {
+    /// Derives a stable [`RuleId`] from a platform-native rule identifier
+    /// that isn't itself UUID-shaped — e.g. the Linux nftables adapter's
+    /// `"nftables/{table}/{chain}"` string. Pure and deterministic: the
+    /// same `seed` always yields the same [`RuleId`], so re-scanning an
+    /// unchanged host doesn't fabricate a new identity for a rule that
+    /// hasn't changed, which matters for drift comparison across scans.
+    ///
+    /// Not a general-purpose UUID constructor — `seed` need not itself be
+    /// a valid UUID, unlike [`core::str::FromStr::from_str`].
+    #[must_use]
+    pub fn synthesize(seed: &str) -> Self {
+        let hash = blake3::hash(seed.as_bytes());
+        let mut bytes = [0u8; 16];
+        bytes.copy_from_slice(&hash.as_bytes()[..16]);
+        Self(uuid::Uuid::from_bytes(bytes))
+    }
+}
+
 /// An operating-system process identifier.
 ///
 /// Zero is rejected: no live process is ever addressable at pid 0 on the
@@ -145,5 +164,25 @@ mod tests {
         let rule = RuleId::generate();
         assert_eq!(host.to_string().parse::<HostId>().unwrap(), host);
         assert_eq!(rule.to_string().parse::<RuleId>().unwrap(), rule);
+    }
+
+    #[test]
+    fn rule_id_synthesize_is_deterministic() {
+        let seed = "nftables/inet-filter/input";
+        assert_eq!(RuleId::synthesize(seed), RuleId::synthesize(seed));
+    }
+
+    #[test]
+    fn rule_id_synthesize_differs_for_different_seeds() {
+        assert_ne!(
+            RuleId::synthesize("nftables/inet-filter/input"),
+            RuleId::synthesize("nftables/inet-filter/output")
+        );
+    }
+
+    #[test]
+    fn rule_id_synthesize_roundtrips_through_string() {
+        let id = RuleId::synthesize("nftables/inet-filter/input");
+        assert_eq!(id.to_string().parse::<RuleId>().unwrap(), id);
     }
 }

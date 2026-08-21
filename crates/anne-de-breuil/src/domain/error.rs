@@ -47,6 +47,18 @@ pub enum DomainError {
     #[error("unknown policy store: {0}")]
     UnknownPolicyStore(String),
 
+    /// The input was not a recognised firewall rule direction.
+    #[error("invalid firewall rule direction: {0}")]
+    InvalidDirection(String),
+
+    /// The input was not a recognised firewall rule action.
+    #[error("invalid firewall rule action: {0}")]
+    InvalidRuleAction(String),
+
+    /// The input was not a recognised firewall profile kind.
+    #[error("invalid firewall profile kind: {0}")]
+    InvalidFirewallProfileKind(String),
+
     /// A `ServiceIdentity` was constructed with no supporting evidence.
     #[error("a ServiceIdentity requires at least one Evidence entry")]
     MissingEvidence,

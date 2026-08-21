@@ -2,6 +2,7 @@
 //! just re-exports their `run` entry points so `crate::run` can dispatch.
 
 pub mod diff;
+pub mod firewall_mapping;
 pub mod inventory;
 pub mod report;
 pub mod scan;

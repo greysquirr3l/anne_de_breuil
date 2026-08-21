@@ -17,6 +17,7 @@ use std::sync::Arc;
 use anyhow::{Context, Result, anyhow};
 use tracing::{info, warn};
 
+use crate::application::firewall_mapping::{firewall_profiles_from_raw, firewall_rules_from_raw};
 use crate::cli::{ExitCode, ScanArgs, StrategyArg};
 use anne_de_breuil::adapters::config::{
     AnneConfig, RemoteConfig, ScanConfig, StoreBackend, StoreConfig,
@@ -26,7 +27,7 @@ use anne_de_breuil::adapters::remote_scanner::{SshHostScanner, SshHostScannerCon
 use anne_de_breuil::adapters::snapshot_store::FsSnapshotStore;
 use anne_de_breuil::adapters::ssh_transport::{DEFAULT_MAX_OUTPUT_BYTES, KnownHosts};
 use anne_de_breuil::application::collect::{
-    CollectError, CollectedEndpoint, ProcessAttribution, collect_endpoints,
+    CollectError, CollectedEndpoint, FirewallPolicySource, ProcessAttribution, collect_endpoints,
 };
 use anne_de_breuil::application::fanout::{HostOutcome, HostScanner, run_fanout};
 use anne_de_breuil::application::identify::ProbeConfig;
@@ -164,15 +165,21 @@ async fn run_interactive(args: ScanArgs, resolved: &ResolvedConfig) -> Result<Ex
 }
 
 /// Collect one snapshot from the local host using whatever collector
-/// adapter matches this build's feature set.
+/// adapter matches this build's feature set (real PowerShell/native-Win32
+/// collection on Windows, real netlink/`/proc` collection on Linux, an
+/// honest empty stub everywhere else — see
+/// `adapters::collector_factory`'s own module docs).
 ///
 /// `include_udp` merges the CLI flag with `[scan]`'s config value (either
-/// one turning it on is enough); `include_loopback`/`skip_signature` stay
-/// CLI-only for now, since the local collector this crate actually
-/// constructs (`adapters::collector_factory::local_collectors`) is a
-/// documented stub that ignores every option regardless of source — a
-/// real local-collector wiring is a separate, larger gap, tracked in
-/// `docs/integration-wiring-audit.md`, not this task's scope.
+/// one turning it on is enough), though no real adapter filters by
+/// transport on it yet — see `collector_factory::local_collectors`'s own
+/// doc comment. `include_loopback`/`skip_signature`/`policy_store` stay
+/// unwired CLI-only options for now: `include_loopback`/`skip_signature`
+/// have no call site anywhere in this crate, and `policy_store` has
+/// nothing to select between since `FirewallPolicySource::inbound_rules`
+/// takes no policy-store parameter. Distinct, standing gaps from the one
+/// this function closes (getting real endpoint/firewall data flowing at
+/// all) — see `docs/integration-wiring-audit.md`.
 async fn scan_local(args: &ScanArgs, scan_config: &ScanConfig) -> Result<ScanSnapshot> {
     let include_udp = args.include_udp || scan_config.include_udp;
     let (collector_set, _guard) = crate::adapters::collector_factory::local_collectors(include_udp);
@@ -186,17 +193,28 @@ async fn scan_local(args: &ScanArgs, scan_config: &ScanConfig) -> Result<ScanSna
         .map(endpoint_from_collected)
         .collect::<Vec<_>>();
 
+    let raw_rules = collector_set
+        .inbound_rules()
+        .await
+        .map_err(|e: CollectError| anyhow!("inbound_rules failed: {e}"))?;
+    let firewall_rules =
+        firewall_rules_from_raw(raw_rules).context("mapping collected firewall rules")?;
+
+    let raw_profiles = collector_set
+        .profiles()
+        .await
+        .map_err(|e: CollectError| anyhow!("profiles failed: {e}"))?;
+    let profiles =
+        firewall_profiles_from_raw(raw_profiles).context("mapping collected firewall profiles")?;
+
     let snapshot = ScanSnapshot::new(
         HostId::generate(),
         ScanId::generate(),
         time::OffsetDateTime::now_utc(),
         env!("CARGO_PKG_VERSION").to_owned(),
         endpoints,
-        // Firewall rules/profiles are pulled directly by the adapter in a
-        // real wiring; the cross-platform collector-factory stub reports
-        // none today — see this function's own doc comment.
-        vec![],
-        vec![],
+        firewall_rules,
+        profiles,
         forced_strategy(args.strategy),
     );
 

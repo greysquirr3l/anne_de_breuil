@@ -1,5 +1,6 @@
 //! [`ProfileState`]: a firewall profile's default action and enablement.
 
+use crate::domain::error::DomainError;
 use crate::domain::firewall_rule::RuleAction;
 
 /// Which firewall profile a [`ProfileState`] describes.
@@ -13,6 +14,23 @@ pub enum FirewallProfileKind {
     Private,
     /// Applies to untrusted/public networks.
     Public,
+}
+
+impl core::str::FromStr for FirewallProfileKind {
+    type Err = DomainError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let trimmed = s.trim();
+        if trimmed.eq_ignore_ascii_case("domain") {
+            Ok(Self::Domain)
+        } else if trimmed.eq_ignore_ascii_case("private") {
+            Ok(Self::Private)
+        } else if trimmed.eq_ignore_ascii_case("public") {
+            Ok(Self::Public)
+        } else {
+            Err(DomainError::InvalidFirewallProfileKind(s.to_owned()))
+        }
+    }
 }
 
 /// The observed state of one firewall profile.
@@ -50,5 +68,30 @@ mod tests {
             default_outbound_action: RuleAction::Allow,
         };
         assert_eq!(state.sort_key(), FirewallProfileKind::Public);
+    }
+
+    #[test]
+    fn firewall_profile_kind_parses_case_insensitively() {
+        use core::str::FromStr as _;
+
+        assert_eq!(
+            FirewallProfileKind::from_str("Domain").unwrap(),
+            FirewallProfileKind::Domain
+        );
+        assert_eq!(
+            FirewallProfileKind::from_str("PRIVATE").unwrap(),
+            FirewallProfileKind::Private
+        );
+        assert_eq!(
+            FirewallProfileKind::from_str("public").unwrap(),
+            FirewallProfileKind::Public
+        );
+    }
+
+    #[test]
+    fn firewall_profile_kind_rejects_unknown_text() {
+        use core::str::FromStr as _;
+
+        assert!(FirewallProfileKind::from_str("Guest").is_err());
     }
 }

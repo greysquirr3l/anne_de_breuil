@@ -1,5 +1,6 @@
 //! [`FirewallRule`]: one effective firewall rule, as observed on a host.
 
+use crate::domain::error::DomainError;
 use crate::domain::ids::RuleId;
 use crate::domain::policy_store::PolicyStore;
 use crate::domain::port_spec::PortSpec;
@@ -18,6 +19,21 @@ pub enum RuleAction {
     Block,
 }
 
+impl core::str::FromStr for RuleAction {
+    type Err = DomainError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let trimmed = s.trim();
+        if trimmed.eq_ignore_ascii_case("allow") {
+            Ok(Self::Allow)
+        } else if trimmed.eq_ignore_ascii_case("block") || trimmed.eq_ignore_ascii_case("deny") {
+            Ok(Self::Block)
+        } else {
+            Err(DomainError::InvalidRuleAction(s.to_owned()))
+        }
+    }
+}
+
 /// The traffic direction a rule governs.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
@@ -27,6 +43,21 @@ pub enum Direction {
     Inbound,
     /// Governs traffic leaving the host.
     Outbound,
+}
+
+impl core::str::FromStr for Direction {
+    type Err = DomainError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let trimmed = s.trim();
+        if trimmed.eq_ignore_ascii_case("inbound") || trimmed.eq_ignore_ascii_case("in") {
+            Ok(Self::Inbound)
+        } else if trimmed.eq_ignore_ascii_case("outbound") || trimmed.eq_ignore_ascii_case("out") {
+            Ok(Self::Outbound)
+        } else {
+            Err(DomainError::InvalidDirection(s.to_owned()))
+        }
+    }
 }
 
 /// One effective firewall rule as observed on a host.
@@ -92,5 +123,28 @@ mod tests {
         let rule_id = RuleId::generate();
         let rule = sample(rule_id);
         assert_eq!(rule.sort_key(), rule_id);
+    }
+
+    #[test]
+    fn rule_action_parses_case_insensitively_including_deny_synonym() {
+        assert_eq!("Allow".parse::<RuleAction>().unwrap(), RuleAction::Allow);
+        assert_eq!("BLOCK".parse::<RuleAction>().unwrap(), RuleAction::Block);
+        assert_eq!("deny".parse::<RuleAction>().unwrap(), RuleAction::Block);
+    }
+
+    #[test]
+    fn rule_action_rejects_unknown_text() {
+        assert!("permit".parse::<RuleAction>().is_err());
+    }
+
+    #[test]
+    fn direction_parses_case_insensitively_including_short_forms() {
+        assert_eq!("Inbound".parse::<Direction>().unwrap(), Direction::Inbound);
+        assert_eq!("out".parse::<Direction>().unwrap(), Direction::Outbound);
+    }
+
+    #[test]
+    fn direction_rejects_unknown_text() {
+        assert!("sideways".parse::<Direction>().is_err());
     }
 }

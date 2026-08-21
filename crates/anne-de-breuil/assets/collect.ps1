@@ -92,7 +92,9 @@ try {
         throw 'OutputPath cannot be empty or whitespace.'
     }
 
-    $outputDirectory = Split-Path -LiteralPath $OutputPath -Parent
+    # -LiteralPath's parameter set has no -Parent switch (PowerShell 7); the
+    # parent directory is its default, implicit return value.
+    $outputDirectory = Split-Path -LiteralPath $OutputPath
     $outputLeafName = Split-Path -Path $OutputPath -Leaf
 
     if (($null -eq $outputDirectory) -or ($outputDirectory.Trim().Length -eq 0)) {

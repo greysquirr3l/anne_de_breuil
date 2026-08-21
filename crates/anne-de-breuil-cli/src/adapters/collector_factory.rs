@@ -69,14 +69,23 @@ const POWERSHELL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3
 /// so this only preserves the flag's plumbing for a future collector that
 /// does — see `application::scan::scan_local`'s own doc comment for the
 /// rest of the still-unwired `ScanArgs` surface.
-// Split by the same `#[cfg]` as `LocalCollectorSet::for_this_platform`
-// rather than left as one non-`const fn`: on a platform with no real
-// adapter to construct, this whole function reduces to a unit-struct
-// tuple literal, which clippy correctly flags as could-be-`const` if
-// left un-split, and `for_this_platform`'s Linux/Windows branches
-// genuinely can't be `const` (they do real I/O), so one shared signature
-// can't satisfy both.
-#[cfg(any(target_os = "linux", windows))]
+// Split three ways, matching `LocalCollectorSet::for_this_platform`'s own
+// three-way `#[cfg]` split exactly, rather than left as one non-`const
+// fn`: on Linux this reduces to `LinuxCollectors::new()` (no I/O, so
+// `for_this_platform` itself is `const` there) wrapped in a tuple
+// literal, which clippy correctly flags as could-be-`const` if left
+// un-split; on a platform with no real adapter at all it's the same
+// story for the `Stub` case. Windows genuinely can't be `const` --
+// `for_this_platform`'s Windows branch calls `PowerShellCollector::new`,
+// real I/O -- so it keeps its own non-`const` signature. One shared
+// signature can't satisfy all three.
+#[cfg(target_os = "linux")]
+pub const fn local_collectors(include_udp: bool) -> (LocalCollectorSet, LocalCollectorGuard) {
+    let _ = include_udp;
+    (LocalCollectorSet::for_this_platform(), LocalCollectorGuard)
+}
+
+#[cfg(windows)]
 pub fn local_collectors(include_udp: bool) -> (LocalCollectorSet, LocalCollectorGuard) {
     let _ = include_udp;
     (LocalCollectorSet::for_this_platform(), LocalCollectorGuard)

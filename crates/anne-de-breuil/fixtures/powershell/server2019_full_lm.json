@@ -143,11 +143,12 @@
       "direction": "Inbound",
       "action": "Allow",
       "protocol": "TCP",
-      "local_port_spec": "443",
+      "local_ports": ["443"],
       "program_filter": "C:\\Windows\\System32\\inetsrv\\w3wp.exe",
       "service_filter": null,
       "enabled": true,
-      "policy_store": "Local"
+      "policy_store_source_type": "Local",
+      "policy_store_source": null
     },
     {
       "rule_id": "{8D8F7D4F-2C8C-4C1B-8D2E-4B6F3A0C1B22}",
@@ -155,11 +156,12 @@
       "direction": "Inbound",
       "action": "Allow",
       "protocol": "TCP",
-      "local_port_spec": "3389",
+      "local_ports": ["3389"],
       "program_filter": null,
       "service_filter": "TermService",
       "enabled": true,
-      "policy_store": "GroupPolicy"
+      "policy_store_source_type": "Gpo",
+      "policy_store_source": "MyDomain.local\\Firewall Policy"
     },
     {
       "rule_id": "{9E9F8E5F-3D9D-4D2C-9E3F-5C7F4B1D2C33}",
@@ -167,11 +169,12 @@
       "direction": "Inbound",
       "action": "Block",
       "protocol": "TCP",
-      "local_port_spec": "445",
+      "local_ports": ["445"],
       "program_filter": null,
       "service_filter": null,
       "enabled": false,
-      "policy_store": "Local"
+      "policy_store_source_type": "Local",
+      "policy_store_source": null
     }
   ],
   "firewall_profiles": [

@@ -134,7 +134,7 @@ struct PsPayload {
     #[serde(default, rename = "services")]
     services: Vec<PsService>,
     #[serde(default, rename = "firewall_rules")]
-    firewall_rules: Vec<RawRule>,
+    firewall_rules: Vec<PsFirewallRule>,
     #[serde(default, rename = "firewall_profiles")]
     firewall_profiles: Vec<RawProfile>,
 }
@@ -293,6 +293,96 @@ impl PsService {
     }
 }
 
+/// One firewall rule as the script actually emits it.
+///
+/// `RawRule` (T04) was written before this script existed, with a
+/// speculative shape: a single `local_port_spec: Option<String>` and a
+/// required flat `policy_store: String`. The real script -- confirmed
+/// against `assets/collect.ps1`'s own rule-object literal -- emits
+/// `local_ports` as a JSON array (`Get-NetFirewallPortFilter`'s
+/// `LocalPort` property, wrapped in PowerShell's `@()`), and has no flat
+/// `policy_store` field at all, only `policy_store_source`/
+/// `policy_store_source_type`. Deserializing `RawRule` directly against
+/// real script output would fail on the first rule with a missing-field
+/// error; `fixtures/powershell/server2019_full_lm.json`'s firewall-rule
+/// entries never caught this because that fixture was hand-written to
+/// match `RawRule`'s own shape, not the script's -- it never actually
+/// came from a real host despite its name. This struct and
+/// [`into_raw_rule`](Self::into_raw_rule) are the missing translation
+/// step every other section already has (`PsSocketEndpoint`, `PsProcess`,
+/// `PsService`).
+#[derive(Debug, Clone, serde::Deserialize)]
+struct PsFirewallRule {
+    #[serde(rename = "rule_id")]
+    rule_id: String,
+    #[serde(rename = "display_name")]
+    display_name: String,
+    #[serde(rename = "direction")]
+    direction: String,
+    #[serde(rename = "action")]
+    action: String,
+    #[serde(default, rename = "protocol")]
+    protocol: Option<String>,
+    #[serde(default, rename = "local_ports")]
+    local_ports: Vec<String>,
+    #[serde(default, rename = "program_filter")]
+    program_filter: Option<String>,
+    #[serde(default, rename = "service_filter")]
+    service_filter: Option<String>,
+    #[serde(rename = "enabled")]
+    enabled: bool,
+    #[serde(default, rename = "policy_store_source_type")]
+    policy_store_source_type: Option<String>,
+    #[serde(default, rename = "policy_store_source")]
+    policy_store_source: Option<String>,
+}
+
+impl PsFirewallRule {
+    /// Joins `local_ports` into the single spec string `RawRule` carries
+    /// (`domain::PortSpec`'s grammar accepts a comma-separated list, so
+    /// `["443", "8443"]` becomes `"443,8443"`). `Get-NetFirewallPortFilter`
+    /// reports `"Any"` for a rule with no port restriction -- that means
+    /// the same thing `RawRule::local_port_spec`'s own doc comment already
+    /// defines `None` as ("applies to every port"), so `"Any"` collapses
+    /// to `None` rather than becoming a literal, unparseable port spec.
+    fn local_port_spec(&self) -> Option<String> {
+        let ports: Vec<&str> = self
+            .local_ports
+            .iter()
+            .map(String::as_str)
+            .filter(|port| !port.eq_ignore_ascii_case("any") && !port.is_empty())
+            .collect();
+        (!ports.is_empty()).then(|| ports.join(","))
+    }
+
+    /// `policy_store_source_type` (Windows' own enum text, e.g. `"Local"`,
+    /// `"Gpo"`, `"Dynamic"`) is what `domain::PolicyStore::from_str`
+    /// actually expects and is present on every rule PowerShell's own API
+    /// returns; `policy_store_source` (a free-text description) is the
+    /// fallback for the rare case a rule reports one but not the other.
+    /// `"Local"` if neither is present -- the least surprising default for
+    /// a rule this API returned at all.
+    fn into_raw_rule(self) -> RawRule {
+        let local_port_spec = self.local_port_spec();
+        let policy_store = self
+            .policy_store_source_type
+            .or(self.policy_store_source)
+            .unwrap_or_else(|| "Local".to_owned());
+        RawRule {
+            rule_id: self.rule_id,
+            display_name: self.display_name,
+            direction: self.direction,
+            action: self.action,
+            protocol: self.protocol,
+            local_port_spec,
+            program_filter: self.program_filter,
+            service_filter: self.service_filter,
+            enabled: self.enabled,
+            policy_store,
+        }
+    }
+}
+
 /// Markers `ConvertTo-Json` leaves behind when its `-Depth` ran out before
 /// it could fully recurse into a nested value: it falls back to that
 /// value's `.ToString()`, and for the collection/hashtable types this
@@ -398,14 +488,18 @@ pub(super) fn parse_payload(bytes: &[u8]) -> Result<PowerShellPayload, CollectEr
             .into_iter()
             .map(PsService::into_hosted)
             .collect(),
-        firewall_rules: envelope.firewall_rules,
+        firewall_rules: envelope
+            .firewall_rules
+            .into_iter()
+            .map(PsFirewallRule::into_raw_rule)
+            .collect(),
         firewall_profiles: envelope.firewall_profiles,
     })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{LanguageMode, parse_payload, strip_bom};
+    use super::{LanguageMode, PsFirewallRule, parse_payload, strip_bom};
 
     #[test]
     fn strips_utf8_bom() {
@@ -419,6 +513,86 @@ mod tests {
         let parsed = parse_payload(raw).unwrap();
         assert!(!parsed.tcp_endpoints.is_empty());
         assert_eq!(parsed.language_mode, LanguageMode::Full);
+        // Regression coverage for the local_ports-array/policy_store_source_type
+        // shape the real script emits (see PsFirewallRule's own doc comment) --
+        // this only proves something if the fixture rules actually round-trip
+        // into real RawRule values, not just that parsing didn't error.
+        assert_eq!(parsed.firewall_rules.len(), 3);
+        let https_rule = parsed
+            .firewall_rules
+            .iter()
+            .find(|rule| rule.display_name.contains("HTTPS"))
+            .unwrap();
+        assert_eq!(https_rule.local_port_spec.as_deref(), Some("443"));
+        assert_eq!(https_rule.policy_store, "Local");
+        let rdp_rule = parsed
+            .firewall_rules
+            .iter()
+            .find(|rule| rule.display_name.contains("Remote Desktop"))
+            .unwrap();
+        assert_eq!(rdp_rule.policy_store, "Gpo");
+    }
+
+    /// Deserializes a rule object shaped exactly like `assets/collect.ps1`'s
+    /// real per-rule literal (`local_ports` as an array, no flat
+    /// `policy_store` field) -- the shape that broke before
+    /// `PsFirewallRule` existed, independent of the fixture file.
+    fn parse_one_rule(json: &str) -> PsFirewallRule {
+        serde_json::from_str(json).unwrap()
+    }
+
+    #[test]
+    fn multiple_local_ports_join_with_a_comma() {
+        let rule = parse_one_rule(
+            r#"{"rule_id":"r1","display_name":"d","direction":"Inbound","action":"Allow",
+                "enabled":true,"local_ports":["443","8443"]}"#,
+        );
+        assert_eq!(
+            rule.into_raw_rule().local_port_spec.as_deref(),
+            Some("443,8443")
+        );
+    }
+
+    #[test]
+    fn any_local_port_collapses_to_no_filter() {
+        let rule = parse_one_rule(
+            r#"{"rule_id":"r1","display_name":"d","direction":"Inbound","action":"Allow",
+                "enabled":true,"local_ports":["Any"]}"#,
+        );
+        assert_eq!(rule.into_raw_rule().local_port_spec, None);
+    }
+
+    #[test]
+    fn empty_local_ports_is_no_filter() {
+        let rule = parse_one_rule(
+            r#"{"rule_id":"r1","display_name":"d","direction":"Inbound","action":"Allow",
+                "enabled":true,"local_ports":[]}"#,
+        );
+        assert_eq!(rule.into_raw_rule().local_port_spec, None);
+    }
+
+    #[test]
+    fn policy_store_falls_back_to_source_then_to_local() {
+        let type_only = parse_one_rule(
+            r#"{"rule_id":"r1","display_name":"d","direction":"Inbound","action":"Allow",
+                "enabled":true,"policy_store_source_type":"Dynamic"}"#,
+        );
+        assert_eq!(type_only.into_raw_rule().policy_store, "Dynamic");
+
+        let source_only = parse_one_rule(
+            r#"{"rule_id":"r1","display_name":"d","direction":"Inbound","action":"Allow",
+                "enabled":true,"policy_store_source":"MyDomain\\Firewall Policy"}"#,
+        );
+        assert_eq!(
+            source_only.into_raw_rule().policy_store,
+            "MyDomain\\Firewall Policy"
+        );
+
+        let neither = parse_one_rule(
+            r#"{"rule_id":"r1","display_name":"d","direction":"Inbound","action":"Allow",
+                "enabled":true}"#,
+        );
+        assert_eq!(neither.into_raw_rule().policy_store, "Local");
     }
 
     #[test]

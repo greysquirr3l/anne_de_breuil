@@ -5,6 +5,16 @@
 //! [`AnneConfig::load`] is the one place that input crosses into typed
 //! value objects. Nothing past this boundary should ever see a raw,
 //! unvalidated `String` standing in for a config value.
+//!
+//! Env overrides use `__` (double underscore) as the section separator —
+//! e.g. `ANNE_REMOTE__CONCURRENCY`, never `ANNE_REMOTE_CONCURRENCY` — so a
+//! single-underscore `ANNE_`-prefixed variable used for something else
+//! entirely (an operational knob like `ANNE_LOG_FORMAT`, a build-time
+//! value) never gets misread as a config path segment and rejected by
+//! `deny_unknown_fields`. A single-underscore separator did exactly that
+//! in practice: `ANNE_CLI_GIT_HASH`, set process-wide by an unrelated
+//! build script, parsed as section `cli` and broke every test that called
+//! `load`.
 
 mod error;
 mod remote;
@@ -66,7 +76,7 @@ impl AnneConfig {
             .merge(Serialized::default("remote", RemoteConfig::default()))
             .merge(Serialized::default("report", ReportConfig::default()))
             .merge(Toml::file(path))
-            .merge(Env::prefixed("ANNE_").split("_"))
+            .merge(Env::prefixed("ANNE_").split("__"))
             .extract()
             .map_err(|source| ConfigError::new(path, source))
     }
@@ -141,13 +151,13 @@ mod tests {
         let path = fixture_path(VALID_CONFIG);
 
         // SAFETY: serialized by `env_lock`; no other test reads or writes
-        // ANNE_REMOTE_CONCURRENCY concurrently.
+        // ANNE_REMOTE__CONCURRENCY concurrently.
         unsafe {
-            std::env::set_var("ANNE_REMOTE_CONCURRENCY", "16");
+            std::env::set_var("ANNE_REMOTE__CONCURRENCY", "16");
         }
         let result = AnneConfig::load(&path);
         unsafe {
-            std::env::remove_var("ANNE_REMOTE_CONCURRENCY");
+            std::env::remove_var("ANNE_REMOTE__CONCURRENCY");
         }
 
         assert_eq!(result.unwrap().remote.concurrency, 16);
@@ -210,13 +220,13 @@ mod tests {
         // SAFETY: serialized by `env_lock`; no other test touches these
         // ANNE_STORE_* vars concurrently.
         unsafe {
-            std::env::set_var("ANNE_STORE_BACKEND", "Sqlite");
-            std::env::set_var("ANNE_STORE_PATH", "/tmp/anne.sqlite");
+            std::env::set_var("ANNE_STORE__BACKEND", "Sqlite");
+            std::env::set_var("ANNE_STORE__PATH", "/tmp/anne.sqlite");
         }
         let result = AnneConfig::load(&missing);
         unsafe {
-            std::env::remove_var("ANNE_STORE_BACKEND");
-            std::env::remove_var("ANNE_STORE_PATH");
+            std::env::remove_var("ANNE_STORE__BACKEND");
+            std::env::remove_var("ANNE_STORE__PATH");
         }
 
         let config = result.unwrap();

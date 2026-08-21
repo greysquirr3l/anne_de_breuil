@@ -3,11 +3,3 @@ l = "clippy --workspace --all-targets --all-features -- -W clippy::all -W clippy
 
 [target.'cfg(all(windows, target_env = "msvc"))']
 rustflags = ["-C", "target-feature=+crt-static"]
-
-# Set `ANNE_CLI_GIT_HASH` for every `cargo` invocation in this workspace,
-# so `anne-de-breuil-cli`'s `build.rs` (which is invoked by both this
-# project's `cargo build` and rust-analyzer's concurrent `cargo check`)
-# produces stable cache output regardless of which process wins the
-# race to populate `target/debug/build/anne-de-breuil-cli-*/output`.
-[env]
-ANNE_CLI_GIT_HASH = { value = "dev", force = false }

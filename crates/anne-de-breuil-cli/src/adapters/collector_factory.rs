@@ -138,7 +138,7 @@ pub enum LocalCollectorSet {
 
 impl LocalCollectorSet {
     #[cfg(target_os = "linux")]
-    fn for_this_platform() -> Self {
+    const fn for_this_platform() -> Self {
         Self::Linux(LinuxCollectors::new())
     }
 

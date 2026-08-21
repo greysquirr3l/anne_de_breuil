@@ -27,6 +27,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use async_trait::async_trait;
+use tokio::io::AsyncReadExt as _;
 use tokio::process::Command;
 use tokio::sync::Mutex as AsyncMutex;
 
@@ -245,7 +246,28 @@ impl PowerShellCollector {
 
         self.child_running.store(true, Ordering::SeqCst);
 
-        let status = match tokio::time::timeout(self.timeout, child.wait()).await {
+        // `child.wait()` alone never reads the `Stdio::piped()` stderr
+        // handle -- besides discarding the one piece of text that would
+        // explain *why* PowerShell exited non-zero (an execution-policy
+        // block, a missing module, an access-denied error), an unread
+        // pipe risks a real deadlock: if the script writes enough to
+        // stderr to fill the OS pipe buffer before exiting, the child
+        // blocks on a write nothing is ever draining. Reading stderr
+        // concurrently with the wait, inside the same timeout budget,
+        // avoids both problems at once.
+        let mut stderr_pipe = child.stderr.take();
+        let mut stderr_buf = Vec::new();
+        let wait_and_drain_stderr = async {
+            let drain_stderr = async {
+                if let Some(pipe) = stderr_pipe.as_mut() {
+                    let _ = pipe.read_to_end(&mut stderr_buf).await;
+                }
+            };
+            let (status, ()) = tokio::join!(child.wait(), drain_stderr);
+            status
+        };
+
+        let status = match tokio::time::timeout(self.timeout, wait_and_drain_stderr).await {
             Ok(wait_result) => {
                 self.child_running.store(false, Ordering::SeqCst);
                 wait_result.map_err(|source| CollectError::Spawn(source.to_string()))?
@@ -265,9 +287,13 @@ impl PowerShellCollector {
         };
 
         if !status.success() {
-            return Err(CollectError::Spawn(format!(
-                "powershell exited with {status}"
-            )));
+            let stderr_text = String::from_utf8_lossy(&stderr_buf);
+            let stderr_text = stderr_text.trim();
+            return Err(CollectError::Spawn(if stderr_text.is_empty() {
+                format!("powershell exited with {status}")
+            } else {
+                format!("powershell exited with {status}: {stderr_text}")
+            }));
         }
 
         let bytes = tokio::fs::read(&out_path)

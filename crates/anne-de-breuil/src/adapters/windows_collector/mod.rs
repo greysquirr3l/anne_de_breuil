@@ -114,7 +114,7 @@ mod tests {
         }
 
         let ps = crate::adapters::powershell_collector::PowerShellCollector::new(
-            std::time::Duration::from_secs(30),
+            std::time::Duration::from_secs(60),
         )
         .expect("embedded helper script writes to a temp file");
         let ps_endpoints = ps

@@ -59,8 +59,14 @@ use anne_de_breuil::adapters::windows_collector::{
 /// uses against a live host — long enough for a busy host's WMI firewall
 /// query and process enumeration to finish, short enough that a genuinely
 /// hung `powershell.exe` doesn't stall a scan indefinitely.
+///
+/// 60s, not 30s: the `NetSecurity` module's first `Get-NetFirewallRule`
+/// (etc.) call on a process pays a one-time CIM/WMI provider registration
+/// cost that's negligible on a warm desktop but routinely eats into the
+/// 30s budget on a cold CI VM — real windows-latest GitHub Actions runs
+/// timed out here at exactly that step, not on a hung process.
 #[cfg(windows)]
-const POWERSHELL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+const POWERSHELL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// Picks and constructs the local collector for this build's target platform.
 ///

@@ -106,13 +106,17 @@ struct PsPayload {
     #[serde(default, rename = "collection_status")]
     #[expect(
         dead_code,
-        reason = "diagnostic surface is read for schema completeness; T21 will surface it in reports"
+        reason = "parsed for schema completeness; no report format (JSON, CSV, SARIF, or HTML) \
+                  currently surfaces per-section collection diagnostics — a standing gap, not a \
+                  scheduled follow-up"
     )]
     collection_status: BTreeMap<String, PsSectionStatus>,
     #[serde(default, rename = "diagnostics")]
     #[expect(
         dead_code,
-        reason = "diagnostic surface is read for schema completeness; T21 will surface it in reports"
+        reason = "parsed for schema completeness; no report format (JSON, CSV, SARIF, or HTML) \
+                  currently surfaces per-section collection diagnostics — a standing gap, not a \
+                  scheduled follow-up"
     )]
     diagnostics: Vec<PsDiagnostic>,
     #[serde(default, rename = "listening_surface")]
@@ -156,7 +160,8 @@ struct PsSectionStatus {
     #[serde(rename = "status")]
     #[expect(
         dead_code,
-        reason = "read for schema completeness; T21 will surface it in reports"
+        reason = "parsed for schema completeness; no report format currently surfaces \
+                  per-section collection status — a standing gap, not a scheduled follow-up"
     )]
     status: String,
     #[serde(rename = "count")]
@@ -172,7 +177,8 @@ struct PsSectionStatus {
 #[derive(Debug, Clone, serde::Deserialize)]
 #[expect(
     dead_code,
-    reason = "diagnostic surface is read for schema completeness; T21 will surface it in reports"
+    reason = "parsed for schema completeness; no report format currently surfaces per-section \
+              collection diagnostics — a standing gap, not a scheduled follow-up"
 )]
 struct PsDiagnostic {
     #[serde(rename = "section")]
@@ -263,7 +269,10 @@ struct PsService {
     #[serde(default, rename = "path_name")]
     #[expect(
         dead_code,
-        reason = "script emits path_name only when -IncludeServicePath is set; T20's redaction boundary governs visibility"
+        reason = "script emits path_name only when -IncludeServicePath is set, but RawService \
+                  (this crate's own port DTO) has no path field to carry it into the domain \
+                  model, and no CLI/config surface sets include_service_path today either -- \
+                  parsed for schema completeness only, never reaches a consumer"
     )]
     path_name: Option<String>,
 }

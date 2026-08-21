@@ -143,10 +143,16 @@ fn program_filter_matches(filter: &ProcessPath, process_path: Option<&ProcessPat
     let Some(process_path) = process_path else {
         return false;
     };
-    // TODO(T04): thread a real environment-lookup port through once a
-    // collector adapter exposes one. Until then there is no environment
-    // data available to expand against, so filters containing `%VAR%`
-    // simply pass through unexpanded.
+    // Standing limitation, no task currently owns it: no collector this
+    // project has ever built (PowerShell, native Win32, Linux) captures
+    // the host's environment variables into any Raw* payload, and
+    // `evaluate` is deliberately pure -- reading `%VAR%` here directly via
+    // `std::env::var` would mean evaluating against *this process's* own
+    // environment, not the remote or at-rest host's, which is simply
+    // wrong. A real fix needs a collector adapter to snapshot environment
+    // state at scan time and thread it through `evaluate`'s caller as
+    // data, not add I/O to this function. Until then, filters containing
+    // `%VAR%` pass through unexpanded.
     let expanded = expand_env_vars(filter.as_str(), |_var_name| None);
     compare_program_paths(&expanded, process_path.as_str())
 }

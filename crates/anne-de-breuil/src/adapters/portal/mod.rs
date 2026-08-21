@@ -27,13 +27,18 @@
 //! This module is read-only: it serves snapshots a scan already wrote via
 //! `SnapshotStore`, never accepts new ones over HTTP. The task this
 //! module implements explicitly allows deferring an ingestion endpoint
-//! behind its own flag; nothing here half-builds one.
-//! `// TODO(T31 or later)`: if a future task wants `portal` to accept
-//! pushed snapshots directly (rather than only ones a local/SSH scan
-//! wrote to the configured `SnapshotStore`), that's a new write-capable
-//! port method and a new authorization question ("which token may write
-//! to which host," not just read), not an extension of
-//! [`crate::application::portal::SnapshotRepository`] as it stands today.
+//! behind its own flag; nothing here half-builds one. Whoever built T27
+//! deferred it, T30's security review reconfirmed the absence is
+//! structural (`portal_upload_endpoint_does_not_exist_by_default`), and
+//! T31's integration audit left it out of scope too -- three independent
+//! passes, same call, no task currently owns building it.
+//!
+//! Standing limitation, not a scheduled follow-up: accepting a snapshot
+//! pushed directly over HTTP (rather than only ones a local/SSH scan
+//! wrote to the configured `SnapshotStore`) needs a new write-capable
+//! port method and a new authorization question -- "which token may write
+//! to which host," not just read -- neither of which
+//! [`crate::application::portal::SnapshotRepository`] answers today.
 
 mod assets;
 mod auth;

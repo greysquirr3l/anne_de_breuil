@@ -222,13 +222,223 @@ mod tests {
     // rendered artifact to inspect, which only exists once that module's
     // `render()` function does.
 
-    // TODO(T25): once the SVG diagram generator and HTML templates exist,
-    // add the codepoint-subset scan (`no_glyph_outside_subset_is_emitted_as_text`):
-    // walk every template/SVG text node and assert each character is
-    // either in the vendored Latin+digits+punctuation subset
-    // (`xtask/src/vendor_fonts.rs::SUBSET_UNICODES`) or lives inside an SVG
-    // `<path>`, never as a font-rendered text glyph (task T22 spec — status
-    // marks, arrows, and box-drawing must be SVG paths, never glyphs).
+    /// `true` iff `ch` renders with the vendored font subset — ASCII
+    /// printable (`0x20..=0x7E`) or the en/em dash the subset also carries.
+    /// Mirrors `xtask/src/vendor_fonts.rs::SUBSET_UNICODES` (`"20-7E,2013,2014"`
+    /// in `hb-subset`'s own range syntax) by hand: `xtask` is a `[[bin]]`-only
+    /// crate with no library target this crate could depend on instead.
+    fn is_within_vendored_subset(ch: char) -> bool {
+        matches!(ch, ' '..='~' | '\u{2013}' | '\u{2014}')
+    }
+
+    /// Proves the checker above actually discriminates, rather than
+    /// trusting the real end-to-end test below to be the only thing that
+    /// ever exercises it — same "not a tautology" bar T22's own
+    /// `font_matches_manifest_rejects_*` tests set for this file.
+    #[test]
+    fn is_within_vendored_subset_accepts_the_real_range_and_rejects_other_glyphs() {
+        assert!(is_within_vendored_subset(' '));
+        assert!(is_within_vendored_subset('~'));
+        assert!(is_within_vendored_subset('A'));
+        assert!(is_within_vendored_subset('\u{2013}')); // en dash
+        assert!(is_within_vendored_subset('\u{2014}')); // em dash
+        assert!(!is_within_vendored_subset('\u{2192}')); // → rightwards arrow
+        assert!(!is_within_vendored_subset('\u{2022}')); // • bullet
+        assert!(!is_within_vendored_subset('é'));
+        assert!(!is_within_vendored_subset('\u{1F600}')); // outside the BMP entirely
+    }
+
+    /// Three endpoints, ASCII throughout: exposed-and-unsigned, contained-
+    /// and-signed, and an SMB endpoint that exists solely so
+    /// `rule_evaluation`'s block layer has a real matched endpoint --
+    /// `rule_evaluation::render` only lists a rule display name once some
+    /// endpoint's own `matched_rules` cites it, not just because the rule
+    /// exists on the host.
+    fn glyph_subset_fixture_endpoints() -> Vec<crate::domain::endpoint::Endpoint> {
+        use core::str::FromStr as _;
+
+        use crate::domain::bind_address::BindAddress;
+        use crate::domain::endpoint::Endpoint;
+        use crate::domain::port::Port;
+        use crate::domain::process::ProcessPath;
+        use crate::domain::protocol::Protocol;
+        use crate::domain::publisher::{PublisherName, SignatureStatus};
+
+        vec![
+            Endpoint::new(
+                Protocol::Tcp,
+                BindAddress::from_str("0.0.0.0").expect("valid ip"),
+                Port::try_from(8443u16).expect("nonzero port"),
+                None,
+                Some(ProcessPath::from_str("/usr/bin/app").expect("non-empty path")),
+                vec![],
+                SignatureStatus::Unsigned,
+                None,
+            ),
+            Endpoint::new(
+                Protocol::Tcp,
+                BindAddress::from_str("127.0.0.1").expect("valid ip"),
+                Port::try_from(22u16).expect("nonzero port"),
+                None,
+                Some(ProcessPath::from_str("/usr/sbin/sshd").expect("non-empty path")),
+                vec![],
+                SignatureStatus::Signed(
+                    PublisherName::try_from("Contoso".to_owned()).expect("non-empty"),
+                ),
+                None,
+            ),
+            Endpoint::new(
+                Protocol::Tcp,
+                BindAddress::from_str("0.0.0.0").expect("valid ip"),
+                Port::try_from(445u16).expect("nonzero port"),
+                None,
+                Some(ProcessPath::from_str("/usr/sbin/smbd").expect("non-empty path")),
+                vec![],
+                SignatureStatus::Unsigned,
+                None,
+            ),
+        ]
+    }
+
+    /// A block rule and an allow rule, one endpoint above matching each --
+    /// exercises `rule_evaluation`'s block and allow layers together.
+    fn glyph_subset_fixture_rules() -> Vec<crate::domain::firewall_rule::FirewallRule> {
+        use crate::domain::firewall_rule::{Direction, FirewallRule, RuleAction};
+        use crate::domain::ids::RuleId;
+        use crate::domain::policy_store::PolicyStore;
+        use crate::domain::port::Port;
+        use crate::domain::port_spec::PortSpec;
+        use crate::domain::protocol::Protocol;
+
+        vec![
+            FirewallRule {
+                rule_id: RuleId::generate(),
+                display_name: "Deny SMB".to_owned(),
+                direction: Direction::Inbound,
+                action: RuleAction::Block,
+                protocol: Protocol::Tcp,
+                port_spec: PortSpec::Single(Port::try_from(445u16).expect("nonzero port")),
+                program_filter: None,
+                service_filter: None,
+                enabled: true,
+                policy_store: PolicyStore::Local,
+            },
+            FirewallRule {
+                rule_id: RuleId::generate(),
+                display_name: "Allow HTTPS".to_owned(),
+                direction: Direction::Inbound,
+                action: RuleAction::Allow,
+                protocol: Protocol::Tcp,
+                port_spec: PortSpec::Single(Port::try_from(8443u16).expect("nonzero port")),
+                program_filter: None,
+                service_filter: None,
+                enabled: true,
+                policy_store: PolicyStore::Local,
+            },
+        ]
+    }
+
+    /// One enabled and one disabled profile -- exercises
+    /// `profile_bar_chart`'s "firewall disabled" label as well as its
+    /// ordinary bars.
+    fn glyph_subset_fixture_profiles() -> Vec<crate::domain::profile::ProfileState> {
+        use crate::domain::firewall_rule::RuleAction;
+        use crate::domain::profile::{FirewallProfileKind, ProfileState};
+
+        vec![
+            ProfileState {
+                profile: FirewallProfileKind::Domain,
+                enabled: true,
+                default_inbound_action: RuleAction::Block,
+                default_outbound_action: RuleAction::Allow,
+            },
+            ProfileState {
+                profile: FirewallProfileKind::Public,
+                enabled: false,
+                default_inbound_action: RuleAction::Block,
+                default_outbound_action: RuleAction::Allow,
+            },
+        ]
+    }
+
+    /// One entry per [`crate::domain::drift::DriftKind`] variant that
+    /// `drift_timeline::render` gives its own label, so every branch of
+    /// that diagram's text output runs at least once.
+    fn glyph_subset_fixture_drift() -> crate::domain::drift::DriftReport {
+        use crate::domain::drift::{DriftEntry, DriftKind, DriftReport, Severity};
+
+        let kinds = [
+            (DriftKind::EndpointAppeared, Severity::Critical),
+            (DriftKind::EndpointDisappeared, Severity::Low),
+            (DriftKind::ProcessChanged, Severity::Medium),
+            (DriftKind::SignatureChanged, Severity::High),
+            (DriftKind::RuleSetChanged, Severity::Medium),
+        ];
+        DriftReport {
+            entries: kinds
+                .into_iter()
+                .map(|(kind, severity)| DriftEntry {
+                    kind,
+                    endpoint_key: None,
+                    severity,
+                })
+                .collect(),
+            suppressed_ephemeral: 0,
+        }
+    }
+
+    /// Renders a real report exercising all five diagram types (exposure
+    /// map, rule evaluation, trust quadrant, profile bar chart, drift
+    /// timeline) plus every template, and scans the actual output for any
+    /// character the vendored font subset can't display.
+    ///
+    /// The fixture built above is deliberately plain ASCII throughout —
+    /// process paths, rule display names, interface labels are all
+    /// collector-supplied free text in production and this project cannot
+    /// constrain what a remote host's firewall rule or binary path is
+    /// named, so scan-derived content is explicitly not what this test is
+    /// checking. What it proves is that the report's *own* authored
+    /// vocabulary — every label, heading, and caption `html_report`/
+    /// `templates` write themselves — never introduces a glyph outside the
+    /// subset; if it did, that text would silently fall back to a system
+    /// font in a report that otherwise ships zero external dependencies at
+    /// view time. A genuinely out-of-subset collector value would still
+    /// render (fallback font, not a panic or mangled output) — this test's
+    /// job is only to keep this codebase's own hardcoded strings honest.
+    #[test]
+    fn no_glyph_outside_subset_is_emitted_as_text() {
+        use crate::adapters::config::FontsMode;
+        use crate::adapters::html_report;
+        use crate::domain::ids::{HostId, ScanId};
+        use crate::domain::report_model::ReportModel;
+        use crate::domain::snapshot::ScanSnapshot;
+        use crate::domain::target_strategy::TargetStrategy;
+
+        let snapshot = ScanSnapshot::new(
+            HostId::generate(),
+            ScanId::generate(),
+            time::OffsetDateTime::UNIX_EPOCH,
+            "1.0.0".to_owned(),
+            glyph_subset_fixture_endpoints(),
+            glyph_subset_fixture_rules(),
+            glyph_subset_fixture_profiles(),
+            TargetStrategy::Execute,
+        );
+        let drift = glyph_subset_fixture_drift();
+
+        let model = ReportModel::build(&[snapshot], Some(&drift), true).expect("model builds");
+        let html = html_report::render(&model, FontsMode::Embed).expect("renders");
+
+        let offending: Vec<char> = html
+            .chars()
+            .filter(|&ch| !is_within_vendored_subset(ch) && !matches!(ch, '\n' | '\r' | '\t'))
+            .collect();
+        assert!(
+            offending.is_empty(),
+            "report's own rendered output used glyphs outside the vendored font subset: \
+             {offending:?}"
+        );
+    }
 
     /// Builds `anne-de-breuil` *without* `report-html` into a scratch
     /// target dir and greps the resulting `.rlib` for the WOFF2 magic and

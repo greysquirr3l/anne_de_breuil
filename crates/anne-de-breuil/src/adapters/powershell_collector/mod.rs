@@ -31,6 +31,8 @@ use tokio::process::Command;
 use tokio::sync::Mutex as AsyncMutex;
 
 use self::payload::{LanguageMode, PowerShellPayload, parse_payload, strip_bom};
+#[cfg(windows)]
+use crate::adapters::windows_collector::WinTrustSignatureVerifier;
 use crate::application::collect::{
     CollectError, EndpointSource, FirewallPolicySource, ProcessResolver, RawEndpoint, RawProcess,
     RawProfile, RawRule, RawService, RedactionPolicy, SignatureVerifier,
@@ -120,6 +122,14 @@ pub struct PowerShellCollector {
     redaction: RedactionPolicy,
     child_running: Arc<AtomicBool>,
     cached: AsyncMutex<Option<Arc<PowerShellPayload>>>,
+    /// Authenticode verification via the same `WinVerifyTrust` call
+    /// [`crate::adapters::windows_collector::WinTrustSignatureVerifier`]
+    /// (T06) uses — see the [`SignatureVerifier`] impl below for why this
+    /// adapter delegates rather than shelling out to
+    /// `Get-AuthenticodeSignature` from the embedded script. `None` off
+    /// Windows, where no such mechanism exists to delegate to.
+    #[cfg(windows)]
+    signatures: WinTrustSignatureVerifier,
 }
 
 impl PowerShellCollector {
@@ -145,6 +155,8 @@ impl PowerShellCollector {
             redaction: RedactionPolicy::default(),
             child_running: Arc::new(AtomicBool::new(false)),
             cached: AsyncMutex::new(None),
+            #[cfg(windows)]
+            signatures: WinTrustSignatureVerifier::new(),
         })
     }
 
@@ -182,6 +194,8 @@ impl PowerShellCollector {
             redaction: RedactionPolicy::default(),
             child_running: Arc::new(AtomicBool::new(false)),
             cached: AsyncMutex::new(None),
+            #[cfg(windows)]
+            signatures: WinTrustSignatureVerifier::new(),
         })
     }
 
@@ -200,6 +214,8 @@ impl PowerShellCollector {
             redaction: RedactionPolicy::default(),
             child_running: Arc::new(AtomicBool::new(false)),
             cached: AsyncMutex::new(None),
+            #[cfg(windows)]
+            signatures: WinTrustSignatureVerifier::new(),
         }
     }
 
@@ -363,11 +379,28 @@ impl FirewallPolicySource for PowerShellCollector {
 
 #[async_trait]
 impl SignatureVerifier for PowerShellCollector {
-    // TODO(T06): Authenticode verification (`Get-AuthenticodeSignature` or
-    // native `WinVerifyTrust`) is real capability this collection path
-    // has cheap access to, but it's a per-path, not a bulk-collected,
-    // query -- wiring it in belongs with the native adapter's signature
-    // handling, not invented ad hoc here against an untested code path.
+    /// Delegates to the same `WinVerifyTrust` call
+    /// [`WinTrustSignatureVerifier`] (T06's native adapter) uses, rather
+    /// than reimplementing Authenticode checking against an untested code
+    /// path. This is a safe, real delegation, not a cross-process trick:
+    /// whichever collector gathered endpoints/processes/firewall data,
+    /// the running `anne` process is the same Windows process either way,
+    /// so calling straight into `WinVerifyTrust` here needs nothing this
+    /// binary doesn't already link when `windows-collector` is enabled.
+    /// Adding `Get-AuthenticodeSignature` to the embedded helper script
+    /// instead would mean a second script round trip per unique binary
+    /// path (the script is a one-shot bulk collector, not built for
+    /// per-path follow-up queries) or a schema bump touching the signed
+    /// script's redaction policy and every payload test that pins its
+    /// shape -- a real feature, not a TODO cleanup.
+    #[cfg(windows)]
+    async fn verify(&self, path: &ProcessPath) -> Result<SignatureStatus, CollectError> {
+        self.signatures.verify(path).await
+    }
+
+    /// No Win32 trust provider exists to delegate to off Windows; honestly
+    /// `Unknown` rather than a guess.
+    #[cfg(not(windows))]
     async fn verify(&self, _path: &ProcessPath) -> Result<SignatureStatus, CollectError> {
         Ok(SignatureStatus::Unknown)
     }

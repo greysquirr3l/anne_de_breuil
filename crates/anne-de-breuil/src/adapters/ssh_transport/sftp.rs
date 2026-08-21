@@ -60,12 +60,12 @@ pub(super) async fn push(
             attrs,
         )
         .await?;
-    file.write_all(&bytes).await.map_err(|err| {
-        TransportError::Transfer(format!("writing {}: {err}", remote.as_str()))
-    })?;
-    file.shutdown().await.map_err(|err| {
-        TransportError::Transfer(format!("closing {}: {err}", remote.as_str()))
-    })?;
+    file.write_all(&bytes)
+        .await
+        .map_err(|err| TransportError::Transfer(format!("writing {}: {err}", remote.as_str())))?;
+    file.shutdown()
+        .await
+        .map_err(|err| TransportError::Transfer(format!("closing {}: {err}", remote.as_str())))?;
     Ok(())
 }
 

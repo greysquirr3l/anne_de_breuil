@@ -635,8 +635,7 @@ mod tests {
 
     use super::{
         CertificateRecord, Duration, Endpoint, OffsetDateTime, ProbeConfig, TlsFinding,
-        TlsHandshakeRecord, TlsProber, derive_findings, incomplete_chain,
-        protocol_version_finding,
+        TlsHandshakeRecord, TlsProber, derive_findings, incomplete_chain, protocol_version_finding,
     };
     use crate::application::identify::Prober as _;
     use crate::domain::{BindAddress, Evidence, Port, Protocol, SignatureStatus};

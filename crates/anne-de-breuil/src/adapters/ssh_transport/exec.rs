@@ -87,7 +87,9 @@ pub(super) async fn exec(
                 data,
                 ext: SSH_EXTENDED_DATA_STDERR,
             } => append_capped(&mut stderr, &data, max_output_bytes)?,
-            ChannelMsg::ExitStatus { exit_status: status } => exit_status = Some(status),
+            ChannelMsg::ExitStatus {
+                exit_status: status,
+            } => exit_status = Some(status),
             // `Eof` only means the remote side is done sending data on
             // this channel -- the exit-status request and the final
             // `Close` can (and per RFC 4254 typically do) arrive after it,

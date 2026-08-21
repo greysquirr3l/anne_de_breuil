@@ -211,17 +211,32 @@ impl CompiledFingerprint {
         let http_header = matchers
             .http_header
             .map(|header| -> Result<(String, Regex), CatalogueError> {
-                Ok((header.name.to_ascii_lowercase(), compile_pattern(&header.pattern)?))
+                Ok((
+                    header.name.to_ascii_lowercase(),
+                    compile_pattern(&header.pattern)?,
+                ))
             })
             .transpose()?;
-        let body_pattern = matchers.body_pattern.as_deref().map(compile_pattern).transpose()?;
+        let body_pattern = matchers
+            .body_pattern
+            .as_deref()
+            .map(compile_pattern)
+            .transpose()?;
         let tls_subject_pattern = matchers
             .tls_subject_pattern
             .as_deref()
             .map(compile_pattern)
             .transpose()?;
-        let banner_pattern = matchers.banner_pattern.as_deref().map(compile_pattern).transpose()?;
-        let version_capture = matchers.version_capture.as_deref().map(compile_pattern).transpose()?;
+        let banner_pattern = matchers
+            .banner_pattern
+            .as_deref()
+            .map(compile_pattern)
+            .transpose()?;
+        let version_capture = matchers
+            .version_capture
+            .as_deref()
+            .map(compile_pattern)
+            .transpose()?;
         let body_prefix = matchers.body_prefix;
         let alpn = matchers.alpn;
 
@@ -315,7 +330,9 @@ impl CompiledFingerprint {
         if let Some(protocols) = &self.alpn {
             for item in evidence {
                 if let Evidence::AlpnProtocol { protocol } = item
-                    && protocols.iter().any(|candidate| candidate.eq_ignore_ascii_case(protocol))
+                    && protocols
+                        .iter()
+                        .any(|candidate| candidate.eq_ignore_ascii_case(protocol))
                 {
                     push_unique(&mut matched, item.clone());
                 }
@@ -331,7 +348,9 @@ impl CompiledFingerprint {
             .as_ref()
             .and_then(|pattern| extract_version(pattern, &matched));
 
-        let identity = ServiceIdentity::new(self.name.clone(), self.category, self.confidence, matched).ok()?;
+        let identity =
+            ServiceIdentity::new(self.name.clone(), self.category, self.confidence, matched)
+                .ok()?;
         Some(match version {
             Some(v) => identity.with_version(v),
             None => identity,
@@ -361,7 +380,9 @@ fn extract_version(pattern: &Regex, evidence: &[Evidence]) -> Option<String> {
             Evidence::HttpBodyPattern { snippet } => snippet,
             Evidence::BannerMatch { pattern: banner } => banner,
             Evidence::TlsCertificateSubject { subject } => subject,
-            Evidence::AlpnProtocol { .. } | Evidence::PortAssignment { .. } | Evidence::ProcessName { .. } => {
+            Evidence::AlpnProtocol { .. }
+            | Evidence::PortAssignment { .. }
+            | Evidence::ProcessName { .. } => {
                 continue;
             }
         };
@@ -383,7 +404,9 @@ static CATALOGUE: LazyLock<Vec<CompiledFingerprint>> = LazyLock::new(build_catal
 /// how CI still catches a dropped entry loudly.
 fn build_catalogue() -> Vec<CompiledFingerprint> {
     let parsed: FingerprintCatalogueRaw =
-        toml::from_str(RAW_CATALOGUE).unwrap_or_else(|_err| FingerprintCatalogueRaw { fingerprint: Vec::new() });
+        toml::from_str(RAW_CATALOGUE).unwrap_or_else(|_err| FingerprintCatalogueRaw {
+            fingerprint: Vec::new(),
+        });
     parsed
         .fingerprint
         .into_iter()
@@ -399,12 +422,18 @@ fn build_catalogue() -> Vec<CompiledFingerprint> {
 /// I/O inside this function.
 #[must_use]
 pub fn fingerprint(evidence: &[Evidence]) -> Vec<ServiceIdentity> {
-    CATALOGUE.iter().filter_map(|entry| entry.try_match(evidence)).collect()
+    CATALOGUE
+        .iter()
+        .filter_map(|entry| entry.try_match(evidence))
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{CatalogueError, FingerprintCatalogueRaw, RAW_CATALOGUE, fingerprint, has_nested_unbounded_quantifier};
+    use super::{
+        CatalogueError, FingerprintCatalogueRaw, RAW_CATALOGUE, fingerprint,
+        has_nested_unbounded_quantifier,
+    };
     use crate::domain::Evidence;
 
     mod fixtures {
@@ -428,7 +457,9 @@ mod tests {
         }
 
         pub(super) fn evidence_from_body(body: &str) -> Vec<Evidence> {
-            vec![Evidence::HttpBodyPattern { snippet: body.to_owned() }]
+            vec![Evidence::HttpBodyPattern {
+                snippet: body.to_owned(),
+            }]
         }
 
         /// `_port` is accepted, not used: [`Evidence`] carries no port
@@ -466,9 +497,15 @@ mod tests {
         let windows = identities
             .iter()
             .find(|identity| identity.name() == "windows_exporter")
-            .expect("windows_exporter fixture body must be identified as windows_exporter specifically");
+            .expect(
+                "windows_exporter fixture body must be identified as windows_exporter specifically",
+            );
         assert_eq!(windows.version(), Some("0.25.1"));
-        assert!(!identities.iter().any(|identity| identity.name() == "node_exporter"));
+        assert!(
+            !identities
+                .iter()
+                .any(|identity| identity.name() == "node_exporter")
+        );
     }
 
     #[test]
@@ -477,14 +514,24 @@ mod tests {
 
         let identities = fingerprint(&evidence);
 
-        assert!(identities.iter().any(|identity| identity.name() == "prometheus"));
-        assert!(!identities.iter().any(|identity| identity.name() == "node_exporter"));
+        assert!(
+            identities
+                .iter()
+                .any(|identity| identity.name() == "prometheus")
+        );
+        assert!(
+            !identities
+                .iter()
+                .any(|identity| identity.name() == "node_exporter")
+        );
     }
 
     #[test]
     fn exporter_on_nonstandard_port_identified_same_as_9100() {
-        let evidence_9100 = fixtures::evidence_from_body_on_port(fixtures::node_exporter_body(), 9100);
-        let evidence_41337 = fixtures::evidence_from_body_on_port(fixtures::node_exporter_body(), 41_337);
+        let evidence_9100 =
+            fixtures::evidence_from_body_on_port(fixtures::node_exporter_body(), 9100);
+        let evidence_41337 =
+            fixtures::evidence_from_body_on_port(fixtures::node_exporter_body(), 41_337);
 
         let identities_9100 = fingerprint(&evidence_9100);
         let identities_41337 = fingerprint(&evidence_41337);
@@ -538,7 +585,9 @@ mod tests {
         assert!(has_nested_unbounded_quantifier("(a*)+"));
         assert!(has_nested_unbounded_quantifier("(a+)*"));
         assert!(!has_nested_unbounded_quantifier("(?:Yes|No)"));
-        assert!(!has_nested_unbounded_quantifier("node_exporter_build_info\\{[^}]*version=\"([0-9.]+)\""));
+        assert!(!has_nested_unbounded_quantifier(
+            "node_exporter_build_info\\{[^}]*version=\"([0-9.]+)\""
+        ));
     }
 
     #[test]
@@ -559,7 +608,8 @@ mod tests {
         "#;
         let parsed: FingerprintCatalogueRaw = toml::from_str(raw).expect("valid TOML shape");
         let entry = parsed.fingerprint.into_iter().next().expect("one entry");
-        let err = super::CompiledFingerprint::compile(entry).expect_err("matcher-less entry must be rejected");
+        let err = super::CompiledFingerprint::compile(entry)
+            .expect_err("matcher-less entry must be rejected");
         assert!(matches!(err, CatalogueError::NoMatchers { .. }));
     }
 
@@ -568,8 +618,13 @@ mod tests {
         // A header carrying a version-shaped value must not leak into an
         // entry whose own matcher never fired against it.
         let evidence = vec![
-            Evidence::HttpHeader { name: "content-length".to_owned(), value: "1234".to_owned() },
-            Evidence::HttpBodyPattern { snippet: "Prometheus Server is Healthy.\n".to_owned() },
+            Evidence::HttpHeader {
+                name: "content-length".to_owned(),
+                value: "1234".to_owned(),
+            },
+            Evidence::HttpBodyPattern {
+                snippet: "Prometheus Server is Healthy.\n".to_owned(),
+            },
         ];
 
         let identities = fingerprint(&evidence);

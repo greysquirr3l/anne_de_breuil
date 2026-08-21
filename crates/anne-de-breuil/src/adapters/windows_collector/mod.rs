@@ -95,7 +95,7 @@ pub use signatures::WinTrustSignatureVerifier;
 #[cfg(test)]
 mod tests {
     use super::{
-        NetstatEndpointSource, WindowsProcessResolver, WinTrustSignatureVerifier,
+        NetstatEndpointSource, WinTrustSignatureVerifier, WindowsProcessResolver,
         WmiFirewallPolicySource,
     };
     use crate::application::collect::{CollectorSet, EndpointSource as _};
@@ -117,7 +117,10 @@ mod tests {
             std::time::Duration::from_secs(30),
         )
         .expect("embedded helper script writes to a temp file");
-        let ps_endpoints = ps.listening_endpoints().await.expect("live PowerShell collection");
+        let ps_endpoints = ps
+            .listening_endpoints()
+            .await
+            .expect("live PowerShell collection");
 
         let endpoints = NetstatEndpointSource::new();
         let processes = WindowsProcessResolver::new();
@@ -129,12 +132,19 @@ mod tests {
             firewall: &firewall,
             signatures: &signatures,
         };
-        let win32_endpoints = win32.listening_endpoints().await.expect("live Win32 collection");
+        let win32_endpoints = win32
+            .listening_endpoints()
+            .await
+            .expect("live Win32 collection");
 
         let mut ps_sorted = ps_endpoints;
         let mut win32_sorted = win32_endpoints;
-        ps_sorted.sort_by(|a, b| (a.protocol.as_str(), a.local_port).cmp(&(b.protocol.as_str(), b.local_port)));
-        win32_sorted.sort_by(|a, b| (a.protocol.as_str(), a.local_port).cmp(&(b.protocol.as_str(), b.local_port)));
+        ps_sorted.sort_by(|a, b| {
+            (a.protocol.as_str(), a.local_port).cmp(&(b.protocol.as_str(), b.local_port))
+        });
+        win32_sorted.sort_by(|a, b| {
+            (a.protocol.as_str(), a.local_port).cmp(&(b.protocol.as_str(), b.local_port))
+        });
 
         assert_eq!(
             ps_sorted

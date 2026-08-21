@@ -635,7 +635,10 @@ mod tests {
         let current = fixtures::snapshots();
         let current_host = current.first().expect("fixture host present").clone();
         let report = diff(&baseline, &current_host);
-        assert!(!report.entries.is_empty(), "fixture must produce real drift");
+        assert!(
+            !report.entries.is_empty(),
+            "fixture must produce real drift"
+        );
 
         let model = ReportModel::build(&[current_host], Some(&report), true).unwrap();
         let total = model.rollup.drift_by_severity.low

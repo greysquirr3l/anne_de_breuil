@@ -115,10 +115,7 @@ impl KnownHosts {
         }
 
         {
-            let accepted = self
-                .accepted
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner);
+            let accepted = self.accepted.lock().unwrap_or_else(PoisonError::into_inner);
             for (accepted_host, accepted_key) in accepted.iter() {
                 if accepted_host == host {
                     host_has_any_entry = true;
@@ -198,14 +195,17 @@ fn glob_match_bytes(pattern: &[u8], text: &[u8]) -> bool {
         (Some(b'*'), _) => {
             let rest = pattern.get(1..).unwrap_or_default();
             glob_match_bytes(rest, text)
-                || (!text.is_empty() && glob_match_bytes(pattern, text.get(1..).unwrap_or_default()))
+                || (!text.is_empty()
+                    && glob_match_bytes(pattern, text.get(1..).unwrap_or_default()))
         }
-        (Some(b'?'), Some(_)) => {
-            glob_match_bytes(pattern.get(1..).unwrap_or_default(), text.get(1..).unwrap_or_default())
-        }
-        (Some(pat_byte), Some(text_byte)) if pat_byte == text_byte => {
-            glob_match_bytes(pattern.get(1..).unwrap_or_default(), text.get(1..).unwrap_or_default())
-        }
+        (Some(b'?'), Some(_)) => glob_match_bytes(
+            pattern.get(1..).unwrap_or_default(),
+            text.get(1..).unwrap_or_default(),
+        ),
+        (Some(pat_byte), Some(text_byte)) if pat_byte == text_byte => glob_match_bytes(
+            pattern.get(1..).unwrap_or_default(),
+            text.get(1..).unwrap_or_default(),
+        ),
         _ => false,
     }
 }

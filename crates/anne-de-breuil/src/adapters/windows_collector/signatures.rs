@@ -22,7 +22,9 @@ use std::sync::Mutex;
 
 use async_trait::async_trait;
 use windows::Win32::Foundation::{HANDLE, HWND};
-use windows::Win32::Security::Cryptography::{CERT_CONTEXT, CERT_NAME_SIMPLE_DISPLAY_TYPE, CertGetNameStringW};
+use windows::Win32::Security::Cryptography::{
+    CERT_CONTEXT, CERT_NAME_SIMPLE_DISPLAY_TYPE, CertGetNameStringW,
+};
 use windows::Win32::Security::WinTrust::{
     WINTRUST_ACTION_GENERIC_VERIFY_V2, WINTRUST_DATA, WINTRUST_FILE_INFO, WTD_CHOICE_FILE,
     WTD_REVOKE_NONE, WTD_STATEACTION_CLOSE, WTD_STATEACTION_VERIFY, WTD_UI_NONE,
@@ -61,7 +63,10 @@ impl SignatureVerifier for WinTrustSignatureVerifier {
         let key = path.as_str().to_owned();
 
         {
-            let cache = self.cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let cache = self
+                .cache
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             if let Some(status) = cache.get(&key) {
                 return Ok(status.clone());
             }

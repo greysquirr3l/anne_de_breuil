@@ -19,8 +19,8 @@
 
 use std::collections::HashMap;
 use std::future::Future;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
@@ -198,8 +198,11 @@ impl ProgressReporter for NullProgressReporter {
 /// A panic's `strategy_used` defaults to [`TargetStrategy::Probe`] — the
 /// least-authoritative tier — since a panic can happen before strategy
 /// resolution ever runs; this never overstates what was actually
-/// established about the host. The same default applies when
-/// `per_host_timeout` elapses before strategy resolution finishes.
+/// established about the host. A [`HostOutcome::TimedOut`] instead reports
+/// whatever strategy `resolve_strategy` had actually settled on before the
+/// timeout fired (`Probe` only if the timeout hit *before* resolution
+/// finished) — see `scan_one_host`'s doc comment for how that survives the
+/// timeout cancelling the future it was computed in.
 pub async fn run_fanout(
     inventory: Vec<InventoryHost>,
     concurrency: usize,
@@ -228,12 +231,19 @@ pub async fn run_fanout(
                     // Nothing in this function ever calls `Semaphore::close`,
                     // so this is unreachable in practice; handled as a
                     // failed host rather than an unwrap/expect on principle.
+                    // `host_started`/`host_finished` still fire here so a
+                    // progress consumer never sees a host silently vanish
+                    // from its start/finish accounting, matching every
+                    // other path through this task.
+                    progress.host_started(host_id);
+                    let outcome = HostOutcome::Failed(HostError::Fatal(
+                        "fan-out concurrency semaphore was closed".to_owned(),
+                    ));
+                    progress.host_finished(host_id, &outcome);
                     return HostResult {
                         host_id,
                         strategy_used: TargetStrategy::Probe,
-                        outcome: HostOutcome::Failed(HostError::Fatal(
-                            "fan-out concurrency semaphore was closed".to_owned(),
-                        )),
+                        outcome,
                     };
                 }
             };
@@ -285,20 +295,36 @@ async fn scan_one_host(
     let scanner_ref = scanner.as_ref();
     let store_ref = store.as_ref();
 
+    // `tokio::time::timeout` drops `budget` in place on expiry without
+    // producing its output, so a `(strategy, result)` tuple returned *from*
+    // `budget` would lose `strategy` on every timeout — including a timeout
+    // that hits well after `resolve_strategy` genuinely finished, which
+    // would then misreport an Execute-resolved host as Probe. Recording the
+    // strategy in a `Mutex` *outside* the cancellable future, the moment
+    // it's known, means a late timeout during retries still reports the
+    // strategy that was actually established. A `Mutex` rather than `Cell`
+    // because `&Cell<_>` isn't `Send`, and `budget` must be `Send` to cross
+    // the `JoinSet::spawn` boundary in `run_fanout`; the lock is held only
+    // for the instant of the `set`/`get`, never across an `.await`.
+    let resolved_strategy = Mutex::new(TargetStrategy::Probe);
+
     let budget = async {
         let strategy = scanner_ref.resolve_strategy(&host).await;
-        let result =
-            with_retry(|| attempt_scan(&host, strategy, idempotency_key, scanner_ref, store_ref))
-                .await;
-        (strategy, result)
+        *resolved_strategy
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = strategy;
+        with_retry(|| attempt_scan(&host, strategy, idempotency_key, scanner_ref, store_ref)).await
     };
 
-    let (strategy, outcome) = match tokio::time::timeout(per_host_timeout, budget).await {
-        Ok((strategy, Ok(scan_id))) => (strategy, HostOutcome::Succeeded(scan_id)),
-        Ok((strategy, Err(HostError::Timeout))) => (strategy, HostOutcome::TimedOut),
-        Ok((strategy, Err(e))) => (strategy, HostOutcome::Failed(e)),
-        Err(_elapsed) => (TargetStrategy::Probe, HostOutcome::TimedOut),
+    let outcome = match tokio::time::timeout(per_host_timeout, budget).await {
+        Ok(Ok(scan_id)) => HostOutcome::Succeeded(scan_id),
+        Ok(Err(HostError::Timeout)) => HostOutcome::TimedOut,
+        Ok(Err(e)) => HostOutcome::Failed(e),
+        Err(_elapsed) => HostOutcome::TimedOut,
     };
+    let strategy = *resolved_strategy
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
 
     progress.host_finished(host_id, &outcome);
     HostResult {
@@ -310,6 +336,17 @@ async fn scan_one_host(
 
 /// One scan-and-persist attempt: scans `host`, then persists the result
 /// under `key`. Called repeatedly, with the same `key`, by [`with_retry`].
+///
+/// `store.put` runs inside the same [`tokio::time::timeout`] budget as the
+/// rest of [`scan_one_host`]. If `per_host_timeout` elapses while a
+/// `SnapshotStore` adapter is mid-write on a `spawn_blocking` thread (as the
+/// filesystem and `SQLite` adapters both are), dropping this future does
+/// *not* cancel that blocking write — Tokio lets it run to completion on
+/// its own thread regardless. The write can therefore still land after the
+/// host has already been reported [`HostOutcome::TimedOut`]; this is
+/// harmless (the store's own idempotency contract collapses it to the same
+/// record a retry would have produced) but means `TimedOut` is not a
+/// guarantee that nothing was persisted for this attempt.
 async fn attempt_scan(
     host: &InventoryHost,
     strategy: TargetStrategy,
@@ -522,6 +559,50 @@ mod tests {
         }
     }
 
+    /// Never resolves — proves `HostOutcome::TimedOut` is actually
+    /// reachable, not just a documented-but-unexercised arm of the
+    /// outcome enum. `resolve_strategy` returns immediately so the timeout
+    /// is guaranteed to fire during the scan attempt itself, not during
+    /// strategy resolution.
+    struct StuckHostScanner;
+
+    #[async_trait]
+    impl HostScanner for StuckHostScanner {
+        async fn resolve_strategy(&self, _host: &InventoryHost) -> TargetStrategy {
+            TargetStrategy::Execute
+        }
+
+        async fn scan(
+            &self,
+            _host: &InventoryHost,
+            _strategy: TargetStrategy,
+            _idempotency_key: IdempotencyKey,
+        ) -> Result<ScanSnapshot, HostError> {
+            std::future::pending().await
+        }
+    }
+
+    /// Never even resolves a strategy — the timeout must fire before
+    /// `resolve_strategy` ever completes, so `strategy_used` has nothing to
+    /// report but the `TargetStrategy::Probe` default.
+    struct StuckBeforeResolveHostScanner;
+
+    #[async_trait]
+    impl HostScanner for StuckBeforeResolveHostScanner {
+        async fn resolve_strategy(&self, _host: &InventoryHost) -> TargetStrategy {
+            std::future::pending().await
+        }
+
+        async fn scan(
+            &self,
+            host: &InventoryHost,
+            _strategy: TargetStrategy,
+            _idempotency_key: IdempotencyKey,
+        ) -> Result<ScanSnapshot, HostError> {
+            Ok(dummy_snapshot(host.host_id))
+        }
+    }
+
     #[derive(Clone, Default)]
     struct ConcurrencyTracker(Arc<ConcurrencyTrackerInner>);
 
@@ -671,6 +752,64 @@ mod tests {
                 .filter(|r| matches!(r.outcome, HostOutcome::Succeeded(_)))
                 .count(),
             4
+        );
+    }
+
+    #[tokio::test]
+    async fn stuck_host_is_reported_as_timed_out_not_failed() {
+        let inventory = inventory_of(1);
+        let scanner = Arc::new(StuckHostScanner) as Arc<dyn HostScanner>;
+        let store = Arc::new(FakeSnapshotStore::default()) as Arc<dyn SnapshotStore>;
+        let progress = Arc::new(NullProgressReporter) as Arc<dyn ProgressReporter>;
+
+        let results = run_fanout(
+            inventory,
+            4,
+            Duration::from_millis(20),
+            store,
+            scanner,
+            progress,
+        )
+        .await;
+
+        assert_eq!(results.len(), 1);
+        assert!(
+            matches!(results[0].outcome, HostOutcome::TimedOut),
+            "expected TimedOut, got {:?}",
+            results[0].outcome
+        );
+        assert_eq!(
+            results[0].strategy_used,
+            TargetStrategy::Execute,
+            "strategy_used must reflect the resolved strategy even when the \
+             scan attempt itself times out"
+        );
+    }
+
+    #[tokio::test]
+    async fn timeout_before_strategy_resolves_reports_probe_default() {
+        let inventory = inventory_of(1);
+        let scanner = Arc::new(StuckBeforeResolveHostScanner) as Arc<dyn HostScanner>;
+        let store = Arc::new(FakeSnapshotStore::default()) as Arc<dyn SnapshotStore>;
+        let progress = Arc::new(NullProgressReporter) as Arc<dyn ProgressReporter>;
+
+        let results = run_fanout(
+            inventory,
+            4,
+            Duration::from_millis(20),
+            store,
+            scanner,
+            progress,
+        )
+        .await;
+
+        assert_eq!(results.len(), 1);
+        assert!(matches!(results[0].outcome, HostOutcome::TimedOut));
+        assert_eq!(
+            results[0].strategy_used,
+            TargetStrategy::Probe,
+            "strategy_used must fall back to the least-authoritative tier \
+             when the timeout hits before resolve_strategy ever completes"
         );
     }
 

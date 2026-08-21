@@ -16,8 +16,8 @@ use std::path::Path;
 use std::sync::Arc;
 
 use russh::client::{AuthResult, Handle, Handler};
-use russh::keys::agent::client::AgentClient;
 use russh::keys::agent::AgentIdentity;
+use russh::keys::agent::client::AgentClient;
 use russh::keys::{PrivateKeyWithHashAlg, PublicKey};
 
 use crate::adapters::inventory::AuthMethod;
@@ -42,7 +42,11 @@ pub(super) struct ClientHandler {
 }
 
 impl ClientHandler {
-    pub(super) const fn new(host_label: String, known_hosts: Arc<KnownHosts>, accept_new: bool) -> Self {
+    pub(super) const fn new(
+        host_label: String,
+        known_hosts: Arc<KnownHosts>,
+        accept_new: bool,
+    ) -> Self {
         Self {
             host_label,
             known_hosts,
@@ -54,7 +58,10 @@ impl ClientHandler {
 impl Handler for ClientHandler {
     type Error = TransportError;
 
-    async fn check_server_key(&mut self, server_public_key: &PublicKey) -> Result<bool, Self::Error> {
+    async fn check_server_key(
+        &mut self,
+        server_public_key: &PublicKey,
+    ) -> Result<bool, Self::Error> {
         verify_host_key(
             &self.known_hosts,
             &self.host_label,
@@ -215,7 +222,9 @@ async fn authenticate_via_keyring(
     })?;
 
     let private_key = russh::keys::decode_secret_key(&secret, None).map_err(|err| {
-        TransportError::Connect(format!("decoding key from keyring entry {entry_name:?}: {err}"))
+        TransportError::Connect(format!(
+            "decoding key from keyring entry {entry_name:?}: {err}"
+        ))
     })?;
     authenticate_with_decoded_key(handle, user, private_key).await
 }

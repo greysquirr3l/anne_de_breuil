@@ -54,8 +54,11 @@ use crate::domain::{HostId, ScanId, ScanSnapshot, TargetStrategy};
 struct SshdFixture {
     child: Child,
     port: u16,
-    #[expect(dead_code, reason = "kept alive for its Drop -- the sshd config, keys, and \
-                                    authorized_keys file must outlive the child process")]
+    #[expect(
+        dead_code,
+        reason = "kept alive for its Drop -- the sshd config, keys, and \
+                                    authorized_keys file must outlive the child process"
+    )]
     work_dir: TempDir,
     client_key_path: PathBuf,
     known_hosts: Arc<KnownHosts>,
@@ -75,7 +78,9 @@ impl SshdFixture {
         let client_pub =
             std::fs::read_to_string(dir.join("client_key.pub")).expect("read client pubkey");
         std::fs::write(dir.join("authorized_keys"), &client_pub).expect("write authorized_keys");
-        let mut perms = std::fs::metadata(&host_key_path).expect("stat host key").permissions();
+        let mut perms = std::fs::metadata(&host_key_path)
+            .expect("stat host key")
+            .permissions();
         perms.set_mode(0o600);
         std::fs::set_permissions(&host_key_path, perms).expect("chmod host key");
 
@@ -113,8 +118,7 @@ impl SshdFixture {
 
         wait_for_port(port);
 
-        let host_pub =
-            std::fs::read_to_string(dir.join("host_key.pub")).expect("read host pubkey");
+        let host_pub = std::fs::read_to_string(dir.join("host_key.pub")).expect("read host pubkey");
         let known_hosts_line = format!("[127.0.0.1]:{port} {}", host_pub.trim());
         let known_hosts = Arc::new(KnownHosts::parse(&known_hosts_line));
 

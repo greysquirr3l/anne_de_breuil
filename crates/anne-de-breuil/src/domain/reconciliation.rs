@@ -117,7 +117,11 @@ mod tests {
         assert_eq!(report.local_identity.as_deref(), Some("nginx.exe"));
         assert_eq!(report.remote_identity.as_deref(), Some("grafana"));
         assert!(report.conflict);
-        assert_eq!(report.remote.len(), 1, "remote evidence must not be dropped on conflict");
+        assert_eq!(
+            report.remote.len(),
+            1,
+            "remote evidence must not be dropped on conflict"
+        );
     }
 
     #[test]

@@ -237,9 +237,8 @@ mod tests {
         use super::{WmiFirewallRule, WmiPortFilter};
 
         pub(super) fn wmi_rules_from_json(bytes: &[u8]) -> Vec<WmiFirewallRule> {
-            serde_json::from_slice(bytes).unwrap_or_else(|err| {
-                panic!("fixture is valid MSFT_NetFirewallRule JSON: {err}")
-            })
+            serde_json::from_slice(bytes)
+                .unwrap_or_else(|err| panic!("fixture is valid MSFT_NetFirewallRule JSON: {err}"))
         }
 
         pub(super) fn wmi_filters_from_json(bytes: &[u8]) -> Vec<WmiPortFilter> {
@@ -254,12 +253,10 @@ mod tests {
     /// (see `application/collect.rs`), which is what this asserts against.
     #[test]
     fn instance_id_join_matches_rule_to_filter() {
-        let rules = fixtures::wmi_rules_from_json(include_bytes!(
-            "../../../fixtures/wmi/rules.json"
-        ));
-        let filters = fixtures::wmi_filters_from_json(include_bytes!(
-            "../../../fixtures/wmi/filters.json"
-        ));
+        let rules =
+            fixtures::wmi_rules_from_json(include_bytes!("../../../fixtures/wmi/rules.json"));
+        let filters =
+            fixtures::wmi_filters_from_json(include_bytes!("../../../fixtures/wmi/filters.json"));
 
         let joined = join_rules_to_filters(rules, &filters);
 

@@ -38,8 +38,8 @@ impl EndpointSource for NetstatEndpointSource {
 fn collect_sockets() -> Result<Vec<RawEndpoint>, CollectError> {
     let af_flags = AddressFamilyFlags::IPV4 | AddressFamilyFlags::IPV6;
     let proto_flags = ProtocolFlags::TCP | ProtocolFlags::UDP;
-    let sockets =
-        get_sockets_info(af_flags, proto_flags).map_err(|source| CollectError::Parse(source.to_string()))?;
+    let sockets = get_sockets_info(af_flags, proto_flags)
+        .map_err(|source| CollectError::Parse(source.to_string()))?;
 
     Ok(sockets
         .into_iter()

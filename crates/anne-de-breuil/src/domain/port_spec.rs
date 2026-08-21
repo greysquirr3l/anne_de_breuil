@@ -45,6 +45,36 @@ impl PortSpec {
             Self::Any | Self::Dynamic(_) => true,
         }
     }
+
+    /// A short, honest, human-readable label for this spec.
+    ///
+    /// A concrete `Single`/`Range` is cheap to spell out in full. A `List`
+    /// with more than four members is summarized by count rather than
+    /// exploded — a report diagram gains nothing from "80, 443, 445,
+    /// 3389, 5000, 5001, ..." spelled out one port at a time, and a `List`
+    /// this size is exactly the case a reader most needs summarized. A
+    /// `Dynamic` keyword's own concrete range is never known here (see
+    /// that variant's docs on [`PortSpec`]), so its label names the
+    /// keyword and says so explicitly rather than implying a resolved
+    /// range that was never computed.
+    #[must_use]
+    pub fn display_label(&self) -> String {
+        const LIST_SUMMARY_THRESHOLD: usize = 4;
+        match self {
+            Self::Any => "any port".to_owned(),
+            Self::Single(port) => port.to_string(),
+            Self::Range(range) => format!("{}-{}", range.start(), range.end()),
+            Self::List(specs) if specs.len() > LIST_SUMMARY_THRESHOLD => {
+                format!("{} ports (list)", specs.len())
+            }
+            Self::List(specs) => specs
+                .iter()
+                .map(Self::display_label)
+                .collect::<Vec<_>>()
+                .join(", "),
+            Self::Dynamic(keyword) => format!("{keyword} (dynamic)"),
+        }
+    }
 }
 
 impl core::str::FromStr for PortSpec {
@@ -200,6 +230,23 @@ impl DynamicKeyword {
             _ => None,
         }
     }
+
+    const fn canonical_name(self) -> &'static str {
+        match self {
+            Self::Rpc => "RPC",
+            Self::RpcEpMap => "RPCEPMap",
+            Self::IpHttpsIn => "IPHTTPSIn",
+            Self::Mdns => "mDNS",
+            Self::Teredo => "Teredo",
+            Self::PlayToDiscovery => "PlayToDiscovery",
+        }
+    }
+}
+
+impl core::fmt::Display for DynamicKeyword {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(self.canonical_name())
+    }
 }
 
 #[cfg(test)]
@@ -293,5 +340,50 @@ mod tests {
     fn port_range_rejects_zero_bounds() {
         assert!(PortRange::try_from((0u16, 10u16)).is_err());
         assert!(PortRange::try_from((10u16, 0u16)).is_err());
+    }
+
+    #[test]
+    fn display_label_spells_out_concrete_specs_in_full() {
+        assert_eq!(PortSpec::Any.display_label(), "any port");
+        assert_eq!(
+            PortSpec::Single(Port::try_from(443u16).unwrap()).display_label(),
+            "443"
+        );
+        let range: PortSpec = "5000-5010".parse().unwrap();
+        assert_eq!(range.display_label(), "5000-5010");
+    }
+
+    #[test]
+    fn display_label_names_a_dynamic_keyword_and_says_so() {
+        let spec = PortSpec::Dynamic(DynamicKeyword::Rpc);
+        assert_eq!(spec.display_label(), "RPC (dynamic)");
+    }
+
+    #[test]
+    fn display_label_spells_out_a_short_list_in_full() {
+        let spec: PortSpec = "80,443".parse().unwrap();
+        assert_eq!(spec.display_label(), "80, 443");
+    }
+
+    #[test]
+    fn display_label_summarizes_a_long_list_by_count_rather_than_exploding_it() {
+        let spec: PortSpec = "80,443,445,3389,5000,5001".parse().unwrap();
+        let label = spec.display_label();
+        assert_eq!(label, "6 ports (list)");
+        assert!(!label.contains("80"));
+    }
+
+    #[test]
+    fn dynamic_keyword_display_matches_its_canonical_parsed_name() {
+        for (expected, keyword) in [
+            ("RPC", DynamicKeyword::Rpc),
+            ("RPCEPMap", DynamicKeyword::RpcEpMap),
+            ("IPHTTPSIn", DynamicKeyword::IpHttpsIn),
+            ("mDNS", DynamicKeyword::Mdns),
+            ("Teredo", DynamicKeyword::Teredo),
+            ("PlayToDiscovery", DynamicKeyword::PlayToDiscovery),
+        ] {
+            assert_eq!(keyword.to_string(), expected);
+        }
     }
 }

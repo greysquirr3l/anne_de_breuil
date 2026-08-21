@@ -81,12 +81,16 @@ const CSV_HEADERS: [&str; 9] = [
 /// One flattened `(host, endpoint)` row of the CSV table.
 ///
 /// Column order is this struct's declared field order, matching
-/// [`CSV_HEADERS`]. `matched_rules` from the task sketch has no
-/// equivalent on [`EndpointView`] (there is no per-endpoint firewall-rule
-/// list in the view model, only a resolved [`ReachabilityView`] verdict);
-/// the closest honest substitute is `hosted_services`, sorted and joined
+/// [`CSV_HEADERS`]. `matched_rules` from the task sketch had no
+/// equivalent on [`EndpointView`] at the time this module was written;
+/// the closest honest substitute was `hosted_services`, sorted and joined
 /// the same way the sketch's own `matched_rules` comment describes
-/// ("sorted, joined — identical scans produce identical rows").
+/// ("sorted, joined — identical scans produce identical rows"). T25 later
+/// added [`EndpointView::matched_rules`] for the rule-evaluation SVG
+/// diagram, but this CSV column set is left unchanged here deliberately —
+/// widening it is a real format change with its own stability
+/// implications (see `CSV_HEADERS`'s own pinned-header test) and belongs
+/// to a task that owns the CSV format's evolution, not a diagram task.
 #[derive(Debug, serde::Serialize)]
 struct EndpointRow {
     host_id: String,

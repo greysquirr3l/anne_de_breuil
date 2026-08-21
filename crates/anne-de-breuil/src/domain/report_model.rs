@@ -30,9 +30,12 @@ use crate::domain::bind_address::BindAddress;
 use crate::domain::drift::{DriftEntry, DriftKind, DriftReport, EndpointKey, Severity};
 use crate::domain::endpoint::Endpoint;
 use crate::domain::exposure::Exposure;
+use crate::domain::firewall_rule::{Direction, FirewallRule, RuleAction};
 use crate::domain::ids::{HostId, ScanId};
 use crate::domain::port::Port;
 use crate::domain::process::ProcessPath;
+use crate::domain::profile::FirewallProfileKind;
+use crate::domain::profile_ports::{self, AllowedPortEntry, ProfilePortSummary};
 use crate::domain::protocol::Protocol;
 use crate::domain::publisher::SignatureStatus;
 use crate::domain::reachability::{Reachability, evaluate};
@@ -121,6 +124,156 @@ impl From<Reachability> for ReachabilityView {
     }
 }
 
+/// Serializable mirror of [`RuleAction`] for the view-model boundary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub enum RuleActionView {
+    /// Permits matching traffic.
+    Allow,
+    /// Denies matching traffic.
+    Block,
+}
+
+impl From<RuleAction> for RuleActionView {
+    fn from(value: RuleAction) -> Self {
+        match value {
+            RuleAction::Allow => Self::Allow,
+            RuleAction::Block => Self::Block,
+        }
+    }
+}
+
+/// Serializable mirror of [`Direction`] for the view-model boundary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub enum DirectionView {
+    /// Governs traffic arriving at the host.
+    Inbound,
+    /// Governs traffic leaving the host.
+    Outbound,
+}
+
+impl From<Direction> for DirectionView {
+    fn from(value: Direction) -> Self {
+        match value {
+            Direction::Inbound => Self::Inbound,
+            Direction::Outbound => Self::Outbound,
+        }
+    }
+}
+
+/// Serializable mirror of [`FirewallProfileKind`] for the view-model boundary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub enum FirewallProfileKindView {
+    /// Applies when the host is joined to and connected via a domain network.
+    Domain,
+    /// Applies to networks the user has marked private/trusted.
+    Private,
+    /// Applies to untrusted/public networks.
+    Public,
+}
+
+impl From<FirewallProfileKind> for FirewallProfileKindView {
+    fn from(value: FirewallProfileKind) -> Self {
+        match value {
+            FirewallProfileKind::Domain => Self::Domain,
+            FirewallProfileKind::Private => Self::Private,
+            FirewallProfileKind::Public => Self::Public,
+        }
+    }
+}
+
+/// One firewall rule as a report reader sees it.
+///
+/// The mirror [`EndpointView::matched_rules`] and the rule-evaluation
+/// diagram (T25) render from, rather than a raw [`FirewallRule`] reaching
+/// the view-model boundary directly. `port_spec` is rendered through
+/// [`crate::domain::port_spec::PortSpec::display_label`] rather than
+/// exposing the spec's own structure here — a report reader needs "what
+/// ports does this rule govern," not the grammar that produced that
+/// answer.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct FirewallRuleView {
+    /// Human-readable rule name.
+    pub display_name: String,
+    /// Traffic direction this rule governs.
+    pub direction: DirectionView,
+    /// Whether the rule allows or blocks matching traffic.
+    pub action: RuleActionView,
+    /// Transport protocol this rule applies to.
+    pub protocol: Protocol,
+    /// Human-readable label for the rule's local-port specification.
+    pub port_spec_label: String,
+    /// Restricts the rule to a specific owning executable, if scoped.
+    pub program_filter: Option<ProcessPath>,
+    /// Restricts the rule to a specific hosted service, if scoped.
+    pub service_filter: Option<ServiceName>,
+    /// Whether the rule is currently enabled.
+    pub enabled: bool,
+}
+
+impl From<&FirewallRule> for FirewallRuleView {
+    fn from(rule: &FirewallRule) -> Self {
+        Self {
+            display_name: rule.display_name.clone(),
+            direction: DirectionView::from(rule.direction),
+            action: RuleActionView::from(rule.action),
+            protocol: rule.protocol,
+            port_spec_label: rule.port_spec.display_label(),
+            program_filter: rule.program_filter.clone(),
+            service_filter: rule.service_filter.clone(),
+            enabled: rule.enabled,
+        }
+    }
+}
+
+/// One inbound allow rule contributing to a profile's open-port posture —
+/// see [`crate::domain::profile_ports`] for why the same rule set applies
+/// to every profile in this data model.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AllowedPortEntryView {
+    /// The rule's own display name.
+    pub rule_display_name: String,
+    /// A short, human-readable label for the rule's port spec.
+    pub port_label: String,
+}
+
+impl From<&AllowedPortEntry> for AllowedPortEntryView {
+    fn from(entry: &AllowedPortEntry) -> Self {
+        Self {
+            rule_display_name: entry.rule_display_name.clone(),
+            port_label: entry.port_label.clone(),
+        }
+    }
+}
+
+/// One profile's inbound-port posture, as the profile bar chart (T25)
+/// renders it.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ProfilePortSummaryView {
+    /// Which profile this describes.
+    pub profile: FirewallProfileKindView,
+    /// Whether the firewall enforces this profile's rules at all.
+    pub enabled: bool,
+    /// The action applied to inbound traffic no rule explicitly covers.
+    pub default_inbound_action: RuleActionView,
+    /// Enabled inbound allow rules that apply under this profile.
+    pub allowed: Vec<AllowedPortEntryView>,
+}
+
+impl From<&ProfilePortSummary> for ProfilePortSummaryView {
+    fn from(summary: &ProfilePortSummary) -> Self {
+        Self {
+            profile: FirewallProfileKindView::from(summary.profile),
+            enabled: summary.enabled,
+            default_inbound_action: RuleActionView::from(summary.default_inbound_action),
+            allowed: summary
+                .allowed
+                .iter()
+                .map(AllowedPortEntryView::from)
+                .collect(),
+        }
+    }
+}
+
 /// One listening endpoint as a report reader sees it: reachability already
 /// resolved against its host's firewall policy, command line already
 /// redacted.
@@ -142,6 +295,13 @@ pub struct EndpointView {
     pub exposure: Exposure,
     /// Reachability against the host's own firewall rules and profiles.
     pub reachability: ReachabilityView,
+    /// The firewall rules that produced `reachability`, in evaluation
+    /// order — see [`crate::domain::reachability::ReachabilityVerdict`],
+    /// whose own `matched_rules` this field carries forward instead of
+    /// discarding. Empty for [`ReachabilityView::LocalOnly`] (no rule is
+    /// ever consulted) and for [`ReachabilityView::DefaultAction`] (no
+    /// rule applied).
+    pub matched_rules: Vec<FirewallRuleView>,
     /// The owning process's command line, with every matched secret shape
     /// replaced by a `[REDACTED:...]` marker. `None` if the collector
     /// reported none.
@@ -171,6 +331,11 @@ pub struct HostSection {
     pub fidelity: Fidelity,
     /// Observed endpoints, in the snapshot's own stable order.
     pub endpoints: Vec<EndpointView>,
+    /// This host's own inbound-port posture per firewall profile — see
+    /// [`crate::domain::profile_ports`]. Firewall rules and profiles are
+    /// per-host data (`ScanSnapshot::firewall_rules`/`profiles`), so
+    /// there is no fleet-wide equivalent of this field.
+    pub profile_ports: Vec<ProfilePortSummaryView>,
 }
 
 /// Serializable mirror of [`Severity`] for the view-model boundary.
@@ -401,6 +566,11 @@ fn build_host_section(snapshot: &ScanSnapshot) -> HostSection {
         .iter()
         .map(|endpoint| build_endpoint_view(endpoint, snapshot))
         .collect();
+    let profile_ports =
+        profile_ports::summarize_inbound_ports(&snapshot.firewall_rules, &snapshot.profiles)
+            .iter()
+            .map(ProfilePortSummaryView::from)
+            .collect();
     HostSection {
         host_id: snapshot.host_id,
         scan_id: snapshot.scan_id,
@@ -409,12 +579,17 @@ fn build_host_section(snapshot: &ScanSnapshot) -> HostSection {
         strategy: snapshot.strategy,
         fidelity: Fidelity::from_strategy(snapshot.strategy),
         endpoints,
+        profile_ports,
     }
 }
 
 fn build_endpoint_view(endpoint: &Endpoint, snapshot: &ScanSnapshot) -> EndpointView {
-    let reachability =
-        evaluate(endpoint, &snapshot.firewall_rules, &snapshot.profiles).reachability;
+    let verdict = evaluate(endpoint, &snapshot.firewall_rules, &snapshot.profiles);
+    let matched_rules = verdict
+        .matched_rules
+        .iter()
+        .map(|rule| FirewallRuleView::from(*rule))
+        .collect();
     let (command_line, command_line_redactions) = endpoint.command_line.as_deref().map_or_else(
         || (None, Vec::new()),
         |raw| {
@@ -430,7 +605,8 @@ fn build_endpoint_view(endpoint: &Endpoint, snapshot: &ScanSnapshot) -> Endpoint
         hosted_services: endpoint.hosted_services.clone(),
         signature_status: endpoint.signature_status.clone(),
         exposure: endpoint.exposure,
-        reachability: ReachabilityView::from(reachability),
+        reachability: ReachabilityView::from(verdict.reachability),
+        matched_rules,
         command_line,
         command_line_redactions,
     }
@@ -554,6 +730,99 @@ mod tests {
                 vec![],
                 TargetStrategy::Probe,
             )
+        }
+    }
+
+    mod firewall_fixtures {
+        use core::str::FromStr as _;
+
+        use crate::domain::bind_address::BindAddress;
+        use crate::domain::endpoint::Endpoint;
+        use crate::domain::firewall_rule::{Direction, FirewallRule, RuleAction};
+        use crate::domain::ids::{HostId, RuleId, ScanId};
+        use crate::domain::policy_store::PolicyStore;
+        use crate::domain::port::Port;
+        use crate::domain::port_spec::PortSpec;
+        use crate::domain::profile::{FirewallProfileKind, ProfileState};
+        use crate::domain::protocol::Protocol;
+        use crate::domain::publisher::SignatureStatus;
+        use crate::domain::snapshot::ScanSnapshot;
+        use crate::domain::target_strategy::TargetStrategy;
+
+        fn allow_https_rule() -> FirewallRule {
+            FirewallRule {
+                rule_id: RuleId::generate(),
+                display_name: "Allow HTTPS".to_owned(),
+                direction: Direction::Inbound,
+                action: RuleAction::Allow,
+                protocol: Protocol::Tcp,
+                port_spec: PortSpec::from_str("443").unwrap(),
+                program_filter: None,
+                service_filter: None,
+                enabled: true,
+                policy_store: PolicyStore::Local,
+            }
+        }
+
+        pub(super) fn host_with_rules_and_profiles() -> ScanSnapshot {
+            let endpoint = Endpoint::new(
+                Protocol::Tcp,
+                BindAddress::from_str("0.0.0.0").expect("valid ip"),
+                Port::try_from(443u16).expect("nonzero port"),
+                None,
+                None,
+                vec![],
+                SignatureStatus::Unknown,
+                None,
+            );
+            let profiles = vec![
+                ProfileState {
+                    profile: FirewallProfileKind::Domain,
+                    enabled: true,
+                    default_inbound_action: RuleAction::Block,
+                    default_outbound_action: RuleAction::Allow,
+                },
+                ProfileState {
+                    profile: FirewallProfileKind::Public,
+                    enabled: false,
+                    default_inbound_action: RuleAction::Block,
+                    default_outbound_action: RuleAction::Allow,
+                },
+            ];
+            ScanSnapshot::new(
+                HostId::generate(),
+                ScanId::generate(),
+                time::OffsetDateTime::UNIX_EPOCH,
+                "1.0.0".to_owned(),
+                vec![endpoint],
+                vec![allow_https_rule()],
+                profiles,
+                TargetStrategy::Execute,
+            )
+        }
+    }
+
+    #[test]
+    fn matched_rules_are_threaded_through_from_the_reachability_verdict() {
+        let snapshot = firewall_fixtures::host_with_rules_and_profiles();
+        let model = ReportModel::build(&[snapshot], None, true).unwrap();
+        let host = model.hosts.first().expect("one host");
+        let endpoint = host.endpoints.first().expect("one endpoint");
+        assert_eq!(endpoint.matched_rules.len(), 1);
+        assert_eq!(endpoint.matched_rules[0].display_name, "Allow HTTPS");
+        assert_eq!(endpoint.matched_rules[0].port_spec_label, "443");
+    }
+
+    #[test]
+    fn profile_ports_carries_every_profile_with_its_own_enabled_state() {
+        let snapshot = firewall_fixtures::host_with_rules_and_profiles();
+        let model = ReportModel::build(&[snapshot], None, true).unwrap();
+        let host = model.hosts.first().expect("one host");
+        assert_eq!(host.profile_ports.len(), 2);
+        assert!(host.profile_ports.iter().any(|p| p.enabled));
+        assert!(host.profile_ports.iter().any(|p| !p.enabled));
+        for profile in &host.profile_ports {
+            assert_eq!(profile.allowed.len(), 1);
         }
     }
 

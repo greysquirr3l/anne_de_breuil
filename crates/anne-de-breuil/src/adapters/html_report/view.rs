@@ -19,6 +19,7 @@
 
 use askama::Template;
 
+use super::diagrams;
 use crate::domain::exposure::Exposure;
 use crate::domain::publisher::SignatureStatus;
 use crate::domain::redaction::SecretCategory;
@@ -265,6 +266,12 @@ pub(super) struct HostSectionTemplate {
     pub(super) by_exposure: Vec<EndpointRow>,
     pub(super) by_reachability: Vec<EndpointRow>,
     pub(super) grid_cells: Vec<PortDensityCell>,
+    /// Server-rendered SVG diagrams for this host — see
+    /// `super::diagrams` for how each is built.
+    pub(super) exposure_map_svg: String,
+    pub(super) rule_evaluation_svg: String,
+    pub(super) trust_quadrant_svg: String,
+    pub(super) profile_bar_chart_svg: String,
 }
 
 /// Builds the per-host template, including all three pre-sorted row sets.
@@ -315,6 +322,10 @@ pub(super) fn host_section_template(host: &HostSection, index: usize) -> HostSec
         by_exposure,
         by_reachability,
         grid_cells: build_port_density_cells(host),
+        exposure_map_svg: diagrams::render_exposure_map(host),
+        rule_evaluation_svg: diagrams::render_rule_evaluation(host),
+        trust_quadrant_svg: diagrams::render_trust_quadrant(host),
+        profile_bar_chart_svg: diagrams::render_profile_bar_chart(host),
     }
 }
 
@@ -414,6 +425,15 @@ pub(super) struct SummaryTemplate {
     pub(super) nav_entries: Vec<HostNavEntry>,
     pub(super) drift_by_severity: Vec<DriftRow>,
     pub(super) drift_by_kind: Vec<DriftRow>,
+    /// The two-point before/after drift timeline SVG, or `None` when
+    /// `model.drift` is empty — the common case, since drift diffing
+    /// isn't wired into the CLI's `report` command yet. Rendering an
+    /// empty or placeholder chart in that case would be dishonest; the
+    /// template omits the whole `<figure>` instead. See
+    /// `super::diagrams::drift_timeline`'s own doc comment for why this
+    /// is a genuine two-point comparison, never a fabricated multi-scan
+    /// history axis.
+    pub(super) drift_timeline_svg: Option<String>,
 }
 
 /// Builds the fleet-wide summary template. `target_for` decides whether
@@ -423,6 +443,8 @@ pub(super) fn summary_template(
     target_for: impl Fn(&HostSection) -> String,
 ) -> SummaryTemplate {
     let (drift_by_severity, drift_by_kind) = build_drift_rows(&model.drift);
+    let drift_timeline_svg =
+        (!model.drift.is_empty()).then(|| diagrams::render_drift_timeline(&model.drift));
     SummaryTemplate {
         hosts_scanned: model.rollup.hosts_scanned,
         endpoints_total: model.hosts.iter().map(|host| host.endpoints.len()).sum(),
@@ -439,6 +461,7 @@ pub(super) fn summary_template(
         nav_entries: build_nav_entries(&model.hosts, target_for),
         drift_by_severity,
         drift_by_kind,
+        drift_timeline_svg,
     }
 }
 

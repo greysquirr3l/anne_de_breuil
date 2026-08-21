@@ -216,4 +216,24 @@
 {% endfor %}
     </tbody>
   </table>
+
+  <section class="diagrams">
+    <h3>Diagrams</h3>
+    <figure class="diagram">
+      <figcaption>Exposure map</figcaption>
+      {{ exposure_map_svg|safe }}
+    </figure>
+    <figure class="diagram">
+      <figcaption>Rule evaluation</figcaption>
+      {{ rule_evaluation_svg|safe }}
+    </figure>
+    <figure class="diagram">
+      <figcaption>Trust quadrant</figcaption>
+      {{ trust_quadrant_svg|safe }}
+    </figure>
+    <figure class="diagram">
+      <figcaption>Firewall profiles</figcaption>
+      {{ profile_bar_chart_svg|safe }}
+    </figure>
+  </section>
 </section>

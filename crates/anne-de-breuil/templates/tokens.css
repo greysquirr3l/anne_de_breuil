@@ -350,6 +350,102 @@ table.drift-table td {
   padding-left: 16px;
 }
 
+.mono {
+  font-family: var(--font-mono);
+}
+
+/* T25 server-rendered SVG diagrams: every diagram references these roles
+   through `class`, never a hex literal -- same token contract T23
+   established for the rest of this stylesheet. `fill`/`stroke` (not
+   `color`) since these apply to SVG shapes, which don't inherit `color`
+   into `fill` without an explicit rule. */
+.diagrams {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin: 16px 0;
+}
+
+.diagram {
+  margin: 0;
+  max-width: 100%;
+}
+
+.diagram svg {
+  max-width: 100%;
+  height: auto;
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+}
+
+.diagram figcaption {
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.svg-node {
+  fill: var(--paper-2);
+  stroke: var(--hairline);
+  stroke-width: 1;
+}
+
+.svg-fill-accent {
+  fill: var(--accent);
+}
+
+.svg-fill-accent-weak {
+  fill: var(--paper-2);
+  stroke: var(--accent);
+  stroke-width: 1;
+}
+
+.svg-fill-muted {
+  fill: var(--muted);
+}
+
+.svg-fill-local-only {
+  fill: var(--exposure-loopback);
+}
+
+.svg-fill-blocked {
+  fill: var(--muted);
+}
+
+.svg-fill-allowed {
+  fill: var(--accent);
+}
+
+.svg-fill-default-action {
+  fill: var(--exposure-specific);
+}
+
+.svg-fill-indeterminate {
+  fill: var(--hairline);
+}
+
+.svg-stroke-hairline {
+  stroke: var(--hairline);
+  stroke-width: 1;
+}
+
+.svg-text {
+  fill: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 12px;
+}
+
+.svg-text-mono {
+  fill: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.svg-text-muted {
+  fill: var(--muted);
+  font-family: var(--font-sans);
+  font-size: 12px;
+}
+
 /* Print: a usable PDF via browser print-to-PDF, since that's how these
    reports reach clients -- page breaks between host sections, no table
    row split mid-page, and drill-down forced open (a closed <details>

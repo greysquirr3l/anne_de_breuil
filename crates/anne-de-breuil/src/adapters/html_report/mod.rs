@@ -9,31 +9,45 @@
 //! the whole document, and `--split` output (see
 //! [`write_report_split`]).
 //!
+//! T25 (this module's second author) adds the report's five server-rendered
+//! SVG diagrams on top of that shell.
+//!
 //! # Module layout
 //!
 //! - [`view`] builds the per-host and fleet-summary template structs
 //!   directly from [`ReportModel`] data (labels, CSS classes, three
-//!   pre-sorted endpoint row sets per host).
+//!   pre-sorted endpoint row sets per host, and — as of T25 — the
+//!   rendered diagram `String`s for that host/the fleet).
+//! - [`diagrams`] builds the five SVG diagrams themselves, over the pure
+//!   geometry primitives in [`crate::domain::svg`] — one file per diagram
+//!   type; see that module's own doc comment for the full list and why
+//!   each is scoped per-host or fleet-wide.
 //! - [`templates`] holds the smaller document-shell templates that only
 //!   ever splice in already-rendered `String`s.
-//! - This file wires the two together: `render`/`write_report_streaming`/
+//! - This file wires the three together: `render`/`write_report_streaming`/
 //!   `write_report_split`, plus `HtmlRenderError`.
 //!
-//! # No `matched_rules`, no per-endpoint severity
+//! # No per-endpoint severity; `matched_rules` arrived later, via T25
 //!
-//! The task this module implements sketches a sortable "severity" column
-//! and a `matched_rules` list per endpoint (rule-provenance cards via
-//! `popover`). Neither exists on the real view model: [`EndpointView`]
-//! carries a single resolved [`crate::domain::report_model::ReachabilityView`]
-//! verdict, never the underlying [`crate::domain::FirewallRule`] list that
-//! produced it (T21's Accumulated Learnings entry on this same gap, in
-//! `render_csv`, made the identical call). "Severity" exists only on
-//! [`crate::domain::report_model::DriftEntryView`], which is drift-specific.
-//! So the per-host endpoint table sorts by the three keys that map to real
-//! data -- port, exposure, reachability -- and a separate fleet-wide drift
-//! summary (see [`view::SummaryTemplate`]) carries the real severity data,
-//! sortable by severity there. Nothing here fabricates a rules list or a
-//! per-endpoint severity value.
+//! The task this module (T24) implements sketches a sortable "severity"
+//! column and a `matched_rules` list per endpoint (rule-provenance cards
+//! via `popover`). At the time this module was written, neither existed
+//! on the real view model: [`EndpointView`] carried a single resolved
+//! [`crate::domain::report_model::ReachabilityView`] verdict, never the
+//! underlying [`crate::domain::FirewallRule`] list that produced it
+//! (T21's Accumulated Learnings entry on this same gap, in `render_csv`,
+//! made the identical call). T25 later extended [`EndpointView`] with a
+//! real `matched_rules: Vec<FirewallRuleView>` field (threaded through
+//! from [`crate::domain::reachability::ReachabilityVerdict`], which
+//! carried it all along) to feed its rule-evaluation diagram -- see
+//! `diagrams::rule_evaluation`. This module's own endpoint table still
+//! sorts by the three keys chosen when `matched_rules` didn't exist --
+//! port, exposure, reachability -- since adding a fourth sort key here is
+//! outside T25's scope and the existing three remain the genuinely useful
+//! ones for a tabular view. "Severity" exists only on
+//! [`crate::domain::report_model::DriftEntryView`], which is drift-specific;
+//! the fleet-wide drift summary (see [`view::SummaryTemplate`]) sorts by
+//! it. Nothing here fabricates a per-endpoint severity value.
 //!
 //! # No `popover`, no `<dialog>`
 //!
@@ -49,22 +63,24 @@
 //! accessibility bug, not a feature. No genuine case remained, so neither
 //! element is used.
 //!
-//! # No inline SVG
+//! # The port-density grid stays pure CSS; real `<svg>` lives in `diagrams`
 //!
 //! The port-density grid (`view::PortDensityCell`, `templates/host_section.html`)
 //! is pure CSS: `<span>` cells with `clip-path` for the hex shape and
 //! `:nth-child` + `transform: translateY()` for the honeycomb column
-//! offset, exactly the task sketch's own description ("CSS grid +
-//! translateY column offsets, no script"). No `<svg>` element appears
-//! anywhere in this module's output -- T25 owns dedicated, server-rendered
-//! SVG diagrams as their own system, and building an ad hoc inline-SVG
-//! visualization here would step on that boundary for no real gain over
-//! the CSS-only version. Because of that, the mandated XSS regression
-//! suite's SVG-context payload (`tests::xss_svg_context_payload_is_neutralized`)
-//! is verified against ordinary HTML-context escaping rather than a real
-//! `<svg><text>` node -- see that test's doc comment for why that's still
-//! a meaningful, non-vacuous check.
+//! offset, exactly the T24 task sketch's own description ("CSS grid +
+//! translateY column offsets, no script"). That was a deliberate choice
+//! to leave dedicated, server-rendered SVG diagrams to T25 as their own
+//! system rather than building an ad hoc inline-SVG visualization here —
+//! [`diagrams`] is that system, added later by this same module. The
+//! port-density grid itself is unchanged: still pure CSS, no `<svg>`.
+//! `tests::xss_svg_context_payload_is_neutralized` predates `diagrams` and
+//! is kept verifying ordinary HTML-context escaping (there was no
+//! `<svg><text>` node in this module's own templates when it was
+//! written); [`diagrams`]'s own test modules carry the equivalent
+//! SVG-context escaping checks against the real `<svg>` output T25 adds.
 
+mod diagrams;
 mod templates;
 mod view;
 

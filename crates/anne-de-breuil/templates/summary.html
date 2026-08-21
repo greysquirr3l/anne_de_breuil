@@ -49,6 +49,14 @@
 {% if !drift_by_severity.is_empty() %}
   <section class="drift-summary">
     <h2>Drift since baseline</h2>
+{% match drift_timeline_svg %}
+{% when Some with (svg) %}
+    <figure class="diagram">
+      <figcaption>Drift timeline (baseline vs. current)</figcaption>
+      {{ svg|safe }}
+    </figure>
+{% when None %}
+{% endmatch %}
     <fieldset class="sort-controls">
       <legend>Sort drift by</legend>
       <input type="radio" name="drift-sort" value="severity" id="drift-sort-severity" checked>

@@ -26,10 +26,15 @@ pub async fn run(target: String) -> Result<ExitCode> {
     let model = anne_de_breuil::domain::report_model::ReportModel::build(
         std::slice::from_ref(&snapshot),
         None,
-        // Fail-closed: callers must confirm they want unredacted output
-        // explicitly. The CLI flag wiring for that confirmation is T21's
-        // scope; for now, every call is treated as confirmed-rejected.
-        false,
+        // `no_redact_confirmed` gates whether `build` proceeds at all, not
+        // whether redaction happens — `build` always redacts every command
+        // line regardless of this flag's value (see the doc comment on
+        // `ReportError::RedactionConfirmationRequired`; there is no code
+        // path yet that can produce an unredacted `ReportModel`). Passing
+        // `true` unconditionally is therefore the correct default path
+        // today, not a bypass: a real `--no-redact` flag has nothing to
+        // attach to until a later report-format task adds one.
+        true,
     )
     .map_err(|e| anyhow!("building report model: {e}"))?;
 

@@ -2,23 +2,27 @@
 //!
 //! clap parses argv once into a [`Cli`], the `tracing` subscriber is
 //! installed with stderr-only output (stdout is reserved for `--emit-json`
-//! and report rendering), then `application::*::run` is awaited. Exit
+//! and report rendering), then [`anne_de_breuil_cli::run`] is awaited. Exit
 //! codes are the documented contract: 0 clean, 1 operational error,
 //! 2 config/arg error, 3 drift detected.
-
+//!
+//! The command-dispatch match itself lives in `lib.rs`, not here — this
+//! binary just links against its own package's library target (Cargo does
+//! that automatically for any package with both a `lib.rs` and a `[[bin]]`)
+//! and calls straight into it. An earlier draft of this file declared its
+//! own `mod application; mod cli; ...` tree pointing at the same source
+//! files the library already compiles, which built two independent copies
+//! of every handler into two different crates (`anne` and
+//! `anne_de_breuil_cli`) — never actually calling the library's copy from
+//! this binary at all. `#![deny(dead_code_pub_in_binary)]` only inspects
+//! the binary crate root, so it had nothing to say about the duplication.
 #![deny(dead_code_pub_in_binary)]
-
-mod adapters;
-mod application;
-mod cli;
-mod domain;
-mod observability;
-mod ports;
 
 use anyhow::Result;
 use clap::Parser;
 
-use crate::cli::{Cli, ExitCode};
+use anne_de_breuil_cli::cli::{Cli, ExitCode};
+use anne_de_breuil_cli::observability;
 
 /// Wrapper around `Result<ExitCode, anyhow::Error>` to satisfy the
 /// orphan rule (we can't `impl Termination for Result<…, _>` directly).
@@ -52,22 +56,6 @@ const fn exit_code_byte(code: ExitCode) -> u8 {
     }
 }
 
-async fn run(cli: Cli) -> Result<ExitCode> {
-    match cli.command {
-        cli::Command::Scan(args) => application::scan::run(args).await,
-        cli::Command::Diff {
-            baseline,
-            current,
-            fail_on_drift,
-        } => application::diff::run(&baseline, &current, fail_on_drift),
-        cli::Command::Report { target } => application::report::run(target).await,
-        cli::Command::Inventory { action } => match action {
-            cli::InventoryAction::Validate { path } => application::inventory::run_validate(&path),
-        },
-        cli::Command::Version => Ok(application::version::run()),
-    }
-}
-
 fn main() -> MainResult {
     MainResult(run_main())
 }
@@ -85,5 +73,5 @@ fn run_main() -> Result<ExitCode> {
         .enable_all()
         .build()
         .map_err(|e| anyhow::anyhow!("tokio runtime: {e}"))?;
-    runtime.block_on(run(cli))
+    runtime.block_on(anne_de_breuil_cli::run(cli))
 }

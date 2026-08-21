@@ -1,0 +1,18 @@
+# Fixture inventory for the `anne inventory validate` integration test.
+#
+# Two hosts, two different auth methods. No secret material — see
+# `anne_de_breuil::adapters::inventory::AuthMethod`'s doc comment for why
+# that's a structural guarantee of the type, not just a convention here.
+
+[[host]]
+host_id = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+address = "10.0.0.20"
+port = 22
+auth = "agent"
+tags = ["web"]
+
+[[host]]
+host_id = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+address = "db.internal"
+port = 2222
+auth = { key_from_keyring = "anne/db" }

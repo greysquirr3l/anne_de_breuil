@@ -61,6 +61,9 @@ async fn run_interactive(args: ScanArgs) -> Result<ExitCode> {
     if let Some(inventory_path) = args.inventory.clone() {
         return Ok(run_remote_fanout(&args, &inventory_path));
     }
+    if let Some(target) = args.target.as_deref() {
+        return Ok(run_remote_single_target(&args, target));
+    }
 
     let snapshot = match scan_local(&args).await {
         Ok(s) => s,
@@ -178,6 +181,27 @@ fn run_remote_fanout(args: &ScanArgs, _inventory_path: &Path) -> ExitCode {
         include_loopback = args.include_loopback,
         skip_signature = args.skip_signature,
         "scan options acknowledged (no remote hosts were contacted)"
+    );
+    ExitCode::Clean
+}
+
+/// Handle a single `--target` host. Same boundary as `run_remote_fanout`:
+/// there is no real `HostScanner`/`RemoteTransport` wiring yet (T31), so
+/// this warns rather than silently scanning the local machine instead of
+/// the host the operator actually asked for — an earlier version of this
+/// function didn't check `args.target` at all here, which made
+/// `anne scan --target somehost` silently report a clean local scan.
+fn run_remote_single_target(args: &ScanArgs, target: &str) -> ExitCode {
+    warn!(
+        target,
+        "remote single-target scanning is not yet wired to a real transport (see \
+         HostScanner's TODO(T31)); run without --target to scan this host, or wait for T31."
+    );
+    info!(
+        include_udp = args.include_udp,
+        include_loopback = args.include_loopback,
+        skip_signature = args.skip_signature,
+        "scan options acknowledged (no remote host was contacted)"
     );
     ExitCode::Clean
 }

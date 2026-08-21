@@ -677,6 +677,68 @@ mod tests {
         assert!(result.get("locations").is_none());
     }
 
+    /// T28 regression: a credential-shaped command line must not survive
+    /// into either machine format. `render_csv` never carries
+    /// `command_line` at all (see [`EndpointRow`]'s own doc comment), so
+    /// this mostly re-proves that fact against the real renderer rather
+    /// than the struct definition alone; `render_json` serializes the
+    /// whole [`ReportModel`], including `EndpointView::command_line`,
+    /// which `ReportModel::build` already redacts (`domain::redaction`) --
+    /// this test exercises that boundary through the actual public
+    /// rendering entry points a report format consumer calls, not by
+    /// re-serializing the model directly the way
+    /// `report_model::tests::command_line_secrets_never_reach_the_serialized_view_model`
+    /// already does one layer up.
+    #[test]
+    fn render_json_and_render_csv_never_leak_a_credential_shaped_command_line() {
+        use core::str::FromStr as _;
+
+        use crate::domain::bind_address::BindAddress;
+        use crate::domain::endpoint::Endpoint;
+        use crate::domain::ids::{HostId, ScanId};
+        use crate::domain::port::Port;
+        use crate::domain::process::ProcessPath;
+        use crate::domain::publisher::SignatureStatus;
+        use crate::domain::report_model::ReportModel;
+        use crate::domain::snapshot::ScanSnapshot;
+        use crate::domain::target_strategy::TargetStrategy;
+
+        // A shape `domain::redaction`'s own test table already proves is
+        // fully claimed by `SecretCategory::ConnectionStringPassword` --
+        // this test is about the renderer boundary, not about rediscovering
+        // which shapes `redact` recognises.
+        const SECRET: &str = "hunter2";
+        let endpoint = Endpoint::new(
+            crate::domain::protocol::Protocol::Tcp,
+            BindAddress::from_str("0.0.0.0").unwrap(),
+            Port::try_from(1433u16).unwrap(),
+            None,
+            Some(ProcessPath::from_str("C:\\sql\\sqlservr.exe").unwrap()),
+            vec![],
+            SignatureStatus::Unsigned,
+            Some(format!(
+                "sqlservr.exe -S PROD -C \"Server=db;User Id=sa;Password={SECRET};\""
+            )),
+        );
+        let snapshot = ScanSnapshot::new(
+            HostId::generate(),
+            ScanId::generate(),
+            time::OffsetDateTime::UNIX_EPOCH,
+            "1.0.0".to_owned(),
+            vec![endpoint],
+            vec![],
+            vec![],
+            TargetStrategy::Execute,
+        );
+        let model = ReportModel::build(&[snapshot], None, true).unwrap();
+
+        let json = render_json(&model, true).unwrap();
+        assert!(!String::from_utf8_lossy(&json).contains(SECRET));
+
+        let csv = render_csv(&model).unwrap();
+        assert!(!String::from_utf8_lossy(&csv).contains(SECRET));
+    }
+
     #[test]
     fn severity_maps_to_the_documented_sarif_levels() {
         use crate::domain::report_model::SeverityView;

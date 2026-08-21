@@ -6,6 +6,16 @@ on:
   pull_request:
     branches: [main]
 
+# Least-privilege default: every job gets a read-only GITHUB_TOKEN unless
+# it explicitly needs more (the codeql job below overrides this with the
+# one extra scope it genuinely needs, security-events: write, to upload
+# results). Without this, jobs run under the repository's own default
+# token permissions, which are commonly broader than any job here needs —
+# none of build/test/lint/cargo-deny ever pushes a commit, opens an issue,
+# or writes a package.
+permissions:
+  contents: read
+
 env:
   # Enforce -D warnings for the build itself via the stable (1.97+)
   # build.warnings Cargo config key, not RUSTFLAGS — RUSTFLAGS changes

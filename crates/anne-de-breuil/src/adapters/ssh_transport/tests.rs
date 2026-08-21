@@ -229,6 +229,42 @@ fn write_fixture_collector(dir: &Path, self_hash: &str, snapshot: &ScanSnapshot)
     script_path
 }
 
+/// Like [`write_fixture_collector`], but sleeps `delay_secs` before
+/// responding to *either* subcommand -- built for
+/// [`remote_cleanup_guarantee_holds_under_cancellation`], which needs a
+/// window wide enough to reliably abort the calling task while an `exec()`
+/// is still in flight, regardless of which of the two remote commands
+/// happened to be running at the moment of cancellation.
+fn write_slow_fixture_collector(
+    dir: &Path,
+    self_hash: &str,
+    snapshot: &ScanSnapshot,
+    delay_secs: u64,
+) -> PathBuf {
+    let json = serde_json::to_string(snapshot).expect("serialize fixture snapshot");
+    let script_path = dir.join("fixture-collector-slow.sh");
+    let mut file = std::fs::File::create(&script_path).expect("create fixture collector");
+    write!(
+        file,
+        "#!/bin/sh\n\
+         sleep {delay_secs}\n\
+         if [ \"$1\" = \"--self-hash\" ]; then\n\
+         printf '%s' '{self_hash}'\n\
+         elif [ \"$1\" = \"--emit-json\" ]; then\n\
+         cat <<'ANNE_FIXTURE_EOF'\n\
+         {json}\n\
+         ANNE_FIXTURE_EOF\n\
+         fi\n"
+    )
+    .expect("write fixture collector script");
+    let mut perms = std::fs::metadata(&script_path)
+        .expect("stat fixture collector")
+        .permissions();
+    perms.set_mode(0o700);
+    std::fs::set_permissions(&script_path, perms).expect("chmod fixture collector");
+    script_path
+}
+
 fn sample_snapshot() -> ScanSnapshot {
     ScanSnapshot::new(
         HostId::generate(),
@@ -387,4 +423,67 @@ async fn drop_without_explicit_remove_now_still_cleans_up() {
         result.is_err(),
         "removing an already-removed path should fail, proving Drop's spawned cleanup ran first"
     );
+}
+
+/// T28's real target for this suite: proves the cleanup guarantee holds
+/// when the *caller's own task* is cancelled mid-`push_exec_collect_remove`
+/// (`JoinHandle::abort()`), not just when the function returns an error
+/// through its own structured control flow (the forced-failure test above)
+/// or when a guard is dropped by falling out of an ordinary scope (the
+/// Drop-path test above). Cancellation is exactly the case the module doc's
+/// "cleanup-guard soundness" section calls out as the one thing only
+/// `Drop`'s fire-and-forget spawn can cover -- this test exercises that
+/// path for real, against a live sshd, rather than trusting the module doc's
+/// reasoning on its own.
+#[tokio::test]
+async fn remote_cleanup_guarantee_holds_under_cancellation() {
+    let _lock = TMP_ARTIFACT_LOCK.lock().await;
+    let sshd = SshdFixture::spawn();
+    let transport = sshd.connect().await.expect("connect to fixture sshd");
+
+    let expected_snapshot = sample_snapshot();
+    // A generous remote-side delay on every subcommand: this test only
+    // needs *a* pending exec() to abort into, not a precisely-timed one.
+    let collector = write_slow_fixture_collector(
+        std::env::temp_dir().as_path(),
+        "fixture-hash-abc123",
+        &expected_snapshot,
+        5,
+    );
+
+    let before = anne_artifact_count_in_tmp();
+
+    let task_transport = Arc::clone(&transport);
+    let task_collector = collector.clone();
+    let handle = tokio::spawn(async move {
+        task_transport
+            .push_exec_collect_remove(&task_collector, "fixture-hash-abc123")
+            .await
+    });
+
+    // Long enough for the push (plain SFTP, no remote script involved) to
+    // land and the guard to be armed, well short of the 5s remote-side
+    // sleep -- the abort below lands while an exec() is genuinely in
+    // flight, not after the call has already returned.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    handle.abort();
+    let join_result = handle.await;
+    assert!(
+        join_result.is_err_and(|err| err.is_cancelled()),
+        "the task must have actually been cancelled mid-flight for this test to prove anything"
+    );
+
+    // `Drop`'s spawn is fire-and-forget -- give the runtime a real chance
+    // to poll it before checking. See the module doc for why this is the
+    // one place in this suite that's a timing assumption rather than a
+    // hard guarantee.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    let after = anne_artifact_count_in_tmp();
+    assert_eq!(
+        before, after,
+        "aborting the calling task mid-exec must not leak the pushed artifact"
+    );
+
+    let _ = std::fs::remove_file(&collector);
 }

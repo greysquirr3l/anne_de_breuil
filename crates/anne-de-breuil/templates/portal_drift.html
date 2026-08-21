@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; base-uri 'none'; form-action 'none';">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>anne-de-breuil portal — drift for {{ host_id }}</title>
+<style>
+{{ tokens_css|safe }}
+</style>
+</head>
+<body>
+<header class="hairline">
+  <h1>Drift: <code>{{ host_id }}</code></h1>
+  <p><a href="/hosts/{{ host_id }}">&larr; back to host</a></p>
+</header>
+<main>
+{% if insufficient_history %}
+  <p class="muted">Need at least two recorded scans for this host to compute drift; {{ scan_count }} on file.</p>
+{% else %}
+  <p>{{ suppressed_ephemeral }} ephemeral-port change(s) suppressed as expected churn.</p>
+{% if entries.is_empty() %}
+  <p class="muted">No drift between the two most recent scans.</p>
+{% else %}
+  <table class="drift-table">
+    <thead><tr><th>Kind</th><th>Endpoint</th><th>Severity</th></tr></thead>
+    <tbody>
+{% for row in entries %}
+      <tr>
+        <td>{{ row.kind_label }}</td>
+        <td>
+{% match row.endpoint_label %}
+{% when Some with (label) %}<code>{{ label }}</code>
+{% when None %}<span class="muted">&mdash;</span>
+{% endmatch %}
+        </td>
+        <td class="{{ row.severity_class }}">{{ row.severity_label }}</td>
+      </tr>
+{% endfor %}
+    </tbody>
+  </table>
+{% endif %}
+{% endif %}
+</main>
+</body>
+</html>

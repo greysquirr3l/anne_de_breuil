@@ -1,0 +1,27 @@
+<section class="host-detail" aria-label="Scans recorded for this host">
+  <h2><code>{{ host_id }}</code></h2>
+  <p><a href="/hosts/{{ host_id }}/drift">View drift (latest vs. previous scan)</a></p>
+{% if scans.is_empty() %}
+  <p class="muted">No scans recorded for this host yet.</p>
+{% else %}
+  <table class="drift-table">
+    <thead>
+      <tr><th>Collected</th><th>Strategy</th><th>Endpoints</th><th>Snapshot</th></tr>
+    </thead>
+    <tbody>
+{% for row in scans %}
+      <tr>
+        <td>{{ row.collected_at }}</td>
+        <td>{{ row.strategy_label }}</td>
+        <td>{{ row.endpoint_count }}</td>
+        <td>
+          <a href="/hosts/{{ host_id }}/scans/{{ row.scan_id }}">report</a>
+          &middot;
+          <a href="/hosts/{{ host_id }}/scans/{{ row.scan_id }}/download">json</a>
+        </td>
+      </tr>
+{% endfor %}
+    </tbody>
+  </table>
+{% endif %}
+</section>

@@ -16,7 +16,10 @@
 //! above: bounded-concurrency fan-out across an inventory of hosts, behind
 //! the [`fanout::HostScanner`] port so the orchestration logic itself
 //! stays testable against fakes, independent of which real collection
-//! pipeline eventually backs it.
+//! pipeline eventually backs it. [`portal`] (behind the `portal` feature)
+//! declares [`portal::SnapshotRepository`]: a second, auth-aware port over
+//! scan data, sibling to `snapshot_store` rather than an extension of it
+//! -- see that module's doc comment for why the two stay separate.
 
 pub mod clock;
 pub mod collect;
@@ -24,6 +27,9 @@ pub mod fanout;
 pub mod identify;
 pub mod remote;
 pub mod snapshot_store;
+
+#[cfg(feature = "portal")]
+pub mod portal;
 
 pub use clock::Clock;
 pub use collect::{

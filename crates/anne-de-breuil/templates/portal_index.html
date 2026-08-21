@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; base-uri 'none'; form-action 'none';">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>anne-de-breuil portal</title>
+<script src="/assets/htmx.min.js?v={{ asset_version }}"></script>
+<style>
+{{ tokens_css|safe }}
+</style>
+</head>
+<body>
+<input type="checkbox" id="theme-toggle" aria-label="Force dark theme regardless of system preference">
+<header class="hairline">
+  <h1>anne-de-breuil portal</h1>
+  <label for="theme-toggle">Dark theme</label>
+</header>
+<nav class="host-nav" aria-label="Hosts this token may read">
+  <h2>Fleet</h2>
+{% if hosts.is_empty() %}
+  <p class="muted">This token has no host scopes configured.</p>
+{% else %}
+  <ul>
+{% for host in hosts %}
+    <li>
+      <a href="/hosts/{{ host }}"
+         hx-get="/hosts/{{ host }}/fragment"
+         hx-target="#content"
+         hx-swap="innerHTML"
+         hx-push-url="true"><code>{{ host }}</code></a>
+    </li>
+{% endfor %}
+  </ul>
+{% endif %}
+</nav>
+<main id="content" class="hosts">
+  <p class="muted">Select a host above to see its scan history.</p>
+</main>
+</body>
+</html>

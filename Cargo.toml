@@ -92,6 +92,18 @@ csv = "1.4.0"
 # feature is left off since nothing here round-trips a template context
 # through JSON.
 askama = "0.16.0"
+# The `portal` feature's HTTP server. `http2` is left off deliberately --
+# this is an internal fleet-ops tool, not a public-facing service under
+# load that needs multiplexing; `tokio`/`http1` cover it with a smaller
+# dependency footprint. Never a default-build dependency -- see
+# `anne-de-breuil/Cargo.toml`'s `portal` feature and
+# `adapters::portal::tests::default_build_excludes_axum`.
+axum = { version = "0.8", default-features = false, features = [
+  "http1",
+  "json",
+  "query",
+  "tokio",
+] }
 
 [profile.release]
 lto = true

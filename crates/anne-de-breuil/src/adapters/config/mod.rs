@@ -17,6 +17,7 @@
 //! `load`.
 
 mod error;
+mod portal;
 mod remote;
 mod report;
 mod scan;
@@ -28,6 +29,7 @@ use figment::Figment;
 use figment::providers::{Env, Format, Serialized, Toml};
 
 pub use error::ConfigError;
+pub use portal::{PortalConfig, PortalTokenConfig};
 pub use remote::RemoteConfig;
 pub use report::{FontsMode, ReportConfig, ReportFormat, Theme};
 pub use scan::ScanConfig;
@@ -54,6 +56,9 @@ pub struct AnneConfig {
     pub report: ReportConfig,
     /// Snapshot persistence settings; has no built-in default, see [`StoreConfig`].
     pub store: StoreConfig,
+    /// `portal` feature settings; defaults to zero tokens (deny-all), see [`PortalConfig`].
+    #[serde(default)]
+    pub portal: PortalConfig,
 }
 
 impl AnneConfig {
@@ -75,6 +80,7 @@ impl AnneConfig {
             .merge(Serialized::default("scan", ScanConfig::default()))
             .merge(Serialized::default("remote", RemoteConfig::default()))
             .merge(Serialized::default("report", ReportConfig::default()))
+            .merge(Serialized::default("portal", PortalConfig::default()))
             .merge(Toml::file(path))
             .merge(Env::prefixed("ANNE_").split("__"))
             .extract()

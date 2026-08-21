@@ -37,6 +37,7 @@ indicatif.workspace = true
 console.workspace = true
 base64 = { workspace = true, optional = true }
 askama = { workspace = true, optional = true }
+axum = { workspace = true, optional = true }
 rusqlite = { workspace = true, optional = true }
 netstat2 = { workspace = true, optional = true }
 sysinfo = { workspace = true, optional = true }
@@ -79,8 +80,15 @@ keyring = { workspace = true, features = ["linux-native"], optional = true }
 keyring = { workspace = true, features = ["apple-native"], optional = true }
 
 [dev-dependencies]
+anyhow.workspace = true
 proptest.workspace = true
 tempfile.workspace = true
+# Router-level test helper (`ServiceExt::oneshot`) for the `portal`
+# feature's axum-router tests -- already transitively present via `axum`
+# itself, this just exposes the same crate directly to test code. A
+# dev-dependency, so it never touches the release/production build graph
+# `adapters::portal::tests::default_build_excludes_axum` checks.
+tower = { version = "0.5", default-features = false, features = ["util"] }
 # SARIF schema validation, `domain::report_render` tests only. The vendored
 # schema (`fixtures/sarif-schema-2.1.0.json`) has no external `$ref`s, so
 # `default-features = false` drops the `reqwest`/`tls-aws-lc-rs` resolver
@@ -96,4 +104,15 @@ linux-collector = ["dep:netstat2", "dep:sysinfo", "dep:netlink-sys"]
 ssh = ["dep:russh", "dep:russh-sftp", "dep:sha1", "dep:hmac", "dep:keyring"]
 report-html = ["dep:base64", "dep:askama"]
 store-sqlite = ["dep:rusqlite"]
-portal = []
+# `portal` implies `report-html`: every portal page (host/scan detail, the
+# drift view) is a thin wrapper rendering `ReportModel` data through the
+# same Askama view functions T24-T26 already built and tested
+# (`adapters::html_report::render_host_fragment`/`render_summary_fragment`)
+# rather than a second HTML rendering pipeline. Pulling in `axum` without
+# `report-html` would leave the portal with no way to render anything.
+portal = ["dep:axum", "report-html"]
+
+[[example]]
+name = "portal_server"
+path = "examples/portal_server.rs"
+required-features = ["portal"]

@@ -54,7 +54,11 @@
 //! thirteenth: the self-contained HTML5 report shell, Askama templates
 //! over [`crate::domain::report_model::ReportModel`] — behind
 //! `report-html`, same as `fonts`, so a collector-only build carries none
-//! of the template/CSS payload either.
+//! of the template/CSS payload either. [`portal`] is the fourteenth: the
+//! `axum` HTTP server exposing stored snapshots to a fleet-ops team over
+//! bearer-token auth — behind `portal`, which implies `report-html` (see
+//! that feature's own comment in `Cargo.toml`) since host/scan detail
+//! pages render through [`html_report`] rather than a second pipeline.
 
 pub mod config;
 pub mod inventory;
@@ -81,3 +85,6 @@ pub mod linux_collector;
 
 #[cfg(feature = "ssh")]
 pub mod ssh_transport;
+
+#[cfg(feature = "portal")]
+pub mod portal;

@@ -241,7 +241,11 @@ fn split_file_name(host: &HostSection) -> String {
     format!("host-{}.html", host.host_id)
 }
 
-fn render_tokens_css(fonts_mode: FontsMode) -> Result<String, HtmlRenderError> {
+/// `pub(crate)` rather than private: `adapters::portal`'s own new page
+/// shapes (fleet index, drift view) still want the same token-system
+/// stylesheet this module already renders and tests, rather than a second
+/// copy -- see that module's doc comment.
+pub(crate) fn render_tokens_css(fonts_mode: FontsMode) -> Result<String, HtmlRenderError> {
     let (serif, sans_400, sans_500, mono) = match fonts_mode {
         FontsMode::Embed => (
             fonts::INSTRUMENT_SERIF_400_DATA_URI.as_str(),

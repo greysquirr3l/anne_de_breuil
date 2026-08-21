@@ -232,3 +232,34 @@ DAMAGES, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 FROM, OUT OF THE USE OR INABILITY TO USE THE FONT SOFTWARE OR FROM
 OTHER DEALINGS IN THE FONT SOFTWARE.
 ```
+
+## Vendored htmx (Zero-Clause BSD)
+
+`crates/anne-de-breuil/assets/vendor/htmx.min.js` is htmx 2.0.4
+(https://htmx.org), fetched unmodified from
+`https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js`, compiled directly into
+the `anne-de-breuil` binary behind the `portal` feature and served
+same-origin from the portal itself (`GET /assets/htmx.min.js`) rather than
+fetched from a CDN at view time — this project's "no external resource
+fetch at view time" rule applies to the portal's own pages the same way it
+already applies to the standalone HTML report. SHA-256:
+`e209dda5c8235479f3166defc7750e1dbcd5a5c1808b7792fc2e6733768fb447`
+(checked by `adapters::portal::assets::vendored_htmx_matches_recorded_hash`).
+Full license text, reproduced unmodified as
+`crates/anne-de-breuil/assets/vendor/htmx-LICENSE.txt`:
+
+```
+Zero-Clause BSD
+=============
+
+Permission to use, copy, modify, and/or distribute this software for
+any purpose with or without fee is hereby granted.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL
+WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES
+OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE
+FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY
+DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN
+AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT
+OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+```

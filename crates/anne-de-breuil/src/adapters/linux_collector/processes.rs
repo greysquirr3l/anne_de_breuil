@@ -37,7 +37,7 @@ impl LinuxProcessResolver {
     pub const fn new() -> Self {
         Self {
             processes: AsyncMutex::const_new(None),
-            redaction: RedactionPolicy::default(),
+            redaction: RedactionPolicy::none(),
         }
     }
 

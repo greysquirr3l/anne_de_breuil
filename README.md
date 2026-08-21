@@ -14,6 +14,55 @@ Output targets are JSON, CSV, SARIF, and a self-contained HTML5 report with
 server-rendered SVG diagrams, no external assets, and no network fetches at
 view time.
 
+## Authorized use only
+
+This tool enumerates listening ports, running processes, and firewall
+policy on every host it touches, and pushes an executable collector onto
+remote hosts over SSH to do it. Only run it against systems you are
+authorised to assess — your own infrastructure, or a client's under an
+explicit engagement. Unauthorised port scanning and remote code execution
+against systems you don't control is illegal in most jurisdictions,
+independent of intent.
+
+## Operational contract
+
+### Exit codes
+
+`anne`'s exit code is a contract other tooling (CI, RMM, cron) can branch
+on without parsing output — defined once in
+`crates/anne-de-breuil-cli/src/cli.rs::ExitCode` and never reused for an
+unrelated meaning:
+
+| Code | Name               | Meaning                                                                 |
+| ---- | ------------------ | ------------------------------------------------------------------------ |
+| `0`  | `Clean`             | The command completed successfully.                                     |
+| `1`  | `OperationalError`  | Collector couldn't reach the host, snapshot couldn't be persisted, etc. |
+| `2`  | `ConfigOrArgError`  | Bad configuration or arguments — missing config field, unparseable inventory, unknown `--strategy` value. |
+| `3`  | `DriftDetected`     | `diff --fail-on-drift` found drift at or above the configured severity. |
+
+### Redaction
+
+Redaction is **always on** today. `domain/redaction.rs::redact` runs
+unconditionally wherever a `ReportModel` is built — there is currently no
+flag, CLI or otherwise, that disables it. A collected command line,
+connection string, or bearer token is stripped to a
+[`SecretCategory`](crates/anne-de-breuil/src/domain/redaction.rs) marker
+before it can reach any output format (JSON, CSV, SARIF, or the HTML
+report). This is the current shipped behaviour, not an aspiration —
+opt-in switches for specific sensitive fields
+(`RedactionPolicy::include_command_line` and friends, consumed by the
+Windows and Linux collector adapters) exist for a future `--include-*`
+CLI surface, but nothing wires them to an operator-facing flag yet.
+
+### Host key verification
+
+SSH host keys are verified strictly and fail-closed
+(`adapters/ssh_transport/known_hosts.rs::verify_host_key`). An unknown
+host key is rejected unless the caller explicitly opts into accepting new
+keys; a host key that doesn't match what's on file is always rejected,
+with no override. There is no accept-on-first-use behaviour by default —
+nothing in the current CLI surface exposes a flag to weaken this.
+
 ## Layout
 
 Two crates under `crates/`:
@@ -79,8 +128,46 @@ be iterated on from macOS or Linux.
 
 The native 3-OS CI matrix (ubuntu-latest, windows-latest, macos-latest) is
 separate from this cross-compiled path — it exists to actually exercise
-`#[cfg(windows)]`/`#[cfg(unix)]` code natively, not to replace it. The
-cross-compiled release build path is covered by the packaging/release task.
+`#[cfg(windows)]`/`#[cfg(unix)]` code natively, not to replace it.
+
+## Release artifacts
+
+`.github/workflows/release.yml` builds and publishes all four targets
+whenever `.github/workflows/auto-tag.yml` tags a new version. It doesn't
+trigger off the tag push directly — a tag pushed with the default
+`GITHUB_TOKEN` never fires another workflow's `on: push: tags`, so
+`release.yml` instead reacts to `auto-tag.yml` finishing (`on:
+workflow_run`) and re-derives the tag from the commit it ran against.
+
+- **windows-msvc** (`x86_64`/`aarch64`) — cross-built via `cargo xwin
+  build --release` on `ubuntu-latest`, statically linked
+  (`target-feature=+crt-static` in `.cargo/config.toml`) so the collector
+  starts on a bare host with neither Rust nor the Visual C++
+  Redistributable installed. `cargo run -p xtask -- verify-static
+  <exe>` fails the build if `llvm-objdump -p` finds a dynamic
+  `VCRUNTIME*`/`MSVCP*` import. A real `windows-latest` runner then
+  executes the cross-built exe (`--version` plus `inventory validate`
+  against a committed fixture) — xwin's build only proves the exe links,
+  not that it runs.
+- **musl** (`x86_64`/`aarch64`) — built natively on `ubuntu-latest`,
+  verified static via `ldd` (falls back to `readelf -d` if `ldd`'s wording
+  ever drifts). This is the artifact pushed to remote hosts over SFTP.
+- **SBOM** — a CycloneDX SBOM (via [`syft`](https://github.com/anchore/syft))
+  covering the full dependency tree is generated per release and published
+  alongside the binaries.
+- **Checksums** — `cargo run -p xtask -- checksum write` SHA-256-hashes
+  every artifact into `SHA256SUMS.txt`, computed after signing so the
+  published hash matches the bytes actually shipped. `checksum verify`
+  re-hashes and compares — the mechanism the SSH transport's own
+  push-side integrity check (T15) mirrors.
+- **Signing** — Windows binaries are Authenticode-signed via
+  `osslsigncode` when `WINDOWS_CODESIGN_CERT`/`WINDOWS_CODESIGN_PASSWORD`
+  repository secrets are configured. No certificate is configured for
+  this repository today, so the release workflow ships unsigned Windows
+  binaries and logs that plainly — an unsigned collector will be flagged
+  by EDR on a real target host; this is a real gap to close before this
+  tool is trusted against production Windows fleets, not a step that's
+  silently faked.
 
 ## Supply chain
 

@@ -1,0 +1,36 @@
+name: auto-tag
+
+# Tags `main` with `v<workspace version>` whenever that version hasn't
+# already been tagged. Exists purely to give `release.yml` something to
+# react to: a tag created here with the default GITHUB_TOKEN does *not*
+# trigger another workflow's `on: push: tags` (GitHub suppresses events
+# from the built-in token to prevent recursive workflow triggering) --
+# `release.yml` instead listens for this workflow's completion via
+# `on: workflow_run` and re-derives the tag from the commit it ran
+# against. See `release.yml`'s `resolve-tag` job.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Tag if the workspace version hasn't been tagged yet
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          tag="v${version}"
+          if git rev-parse "$tag" >/dev/null 2>&1; then
+            echo "::notice::$tag already exists, nothing to do"
+            exit 0
+          fi
+          git tag "$tag"
+          git push origin "$tag"

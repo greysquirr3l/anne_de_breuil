@@ -1,0 +1,289 @@
+name: release
+
+# Triggered by `auto-tag.yml` finishing, not by the tag push itself: a tag
+# pushed with the default GITHUB_TOKEN (as `auto-tag.yml` does) never fires
+# another workflow's `on: push: tags` -- GitHub suppresses that specifically
+# to stop one workflow's automated push from recursively triggering others.
+# `resolve-tag` re-derives the tag from the commit `auto-tag.yml` ran
+# against instead of trusting anything about *why* it ran.
+on:
+  workflow_run:
+    workflows: [auto-tag]
+    types: [completed]
+
+# Every job inherits read-only by default; only `publish-release` (the one
+# step that actually creates a GitHub release and uploads assets) opts
+# into `contents: write`, matching the least-privilege posture T28 already
+# established for ci.yml.
+permissions:
+  contents: read
+
+jobs:
+  resolve-tag:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - id: tag
+        run: echo "tag=$(git describe --tags --exact-match HEAD)" >> "$GITHUB_OUTPUT"
+
+  build-windows-msvc:
+    needs: resolve-tag
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve-tag.outputs.tag }}
+
+      - name: Install pinned toolchain
+        run: rustup show
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-xwin
+        run: cargo install cargo-xwin
+
+      # xwin cross-builds both MSVC targets on an ubuntu-latest runner --
+      # faster and deterministic compared to a native windows-latest build,
+      # and it's link-only (import libs, not execution), so a real
+      # windows-latest job still has to run the result (see
+      # `smoke-test-windows`) before this is trusted.
+      - name: Cross-build x86_64-pc-windows-msvc
+        run: cargo xwin build --release --target x86_64-pc-windows-msvc -p anne-de-breuil-cli
+
+      - name: Cross-build aarch64-pc-windows-msvc
+        run: cargo xwin build --release --target aarch64-pc-windows-msvc -p anne-de-breuil-cli
+
+      # `.cargo/config.toml` sets target-feature=+crt-static for both msvc
+      # targets so the collector starts on a bare host with neither Rust
+      # nor the VC++ Redistributable installed. This is the automated
+      # check for that -- a dynamic VCRUNTIME/MSVCP import here means the
+      # rustflag silently didn't apply.
+      - name: Install llvm-objdump
+        run: sudo apt-get update && sudo apt-get install -y llvm
+
+      - name: Verify no dynamic CRT import
+        run: |
+          cargo run -p xtask -- verify-static target/x86_64-pc-windows-msvc/release/anne.exe
+          cargo run -p xtask -- verify-static target/aarch64-pc-windows-msvc/release/anne.exe
+
+      - name: Stage artifacts
+        run: |
+          mkdir -p dist
+          cp target/x86_64-pc-windows-msvc/release/anne.exe dist/anne-x86_64-pc-windows-msvc.exe
+          cp target/aarch64-pc-windows-msvc/release/anne.exe dist/anne-aarch64-pc-windows-msvc.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-msvc-raw
+          path: dist/
+
+  # No real code-signing certificate exists for this repository (and won't
+  # in a fork/dry-run context) -- this step is a genuine, correctly
+  # structured Authenticode signing path that reads the cert from secrets
+  # and signs for real when they're present, and skips cleanly with a
+  # clear log message when they're not, rather than failing the release or
+  # silently pretending to sign. `osslsigncode` cross-signs from Linux, so
+  # this stays on ubuntu-latest instead of needing a Windows runner.
+  sign-windows:
+    needs: build-windows-msvc
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-msvc-raw
+          path: dist
+
+      - name: Authenticode-sign (skips if no cert is configured)
+        env:
+          WINDOWS_CODESIGN_CERT: ${{ secrets.WINDOWS_CODESIGN_CERT }}
+          WINDOWS_CODESIGN_PASSWORD: ${{ secrets.WINDOWS_CODESIGN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${WINDOWS_CODESIGN_CERT:-}" ]; then
+            echo "::notice::WINDOWS_CODESIGN_CERT is not set -- shipping unsigned Windows binaries. \
+          An unsigned collector will be flagged by EDR on a real target host; configure \
+          WINDOWS_CODESIGN_CERT/WINDOWS_CODESIGN_PASSWORD as repository secrets to sign for real."
+            exit 0
+          fi
+          sudo apt-get update && sudo apt-get install -y osslsigncode
+          echo "$WINDOWS_CODESIGN_CERT" | base64 -d > codesign.pfx
+          for exe in dist/*.exe; do
+            osslsigncode sign \
+              -pkcs12 codesign.pfx -pass "$WINDOWS_CODESIGN_PASSWORD" \
+              -n "anne-de-breuil" \
+              -i "https://github.com/${GITHUB_REPOSITORY}" \
+              -t http://timestamp.digicert.com \
+              -in "$exe" -out "${exe}.signed"
+            mv "${exe}.signed" "$exe"
+          done
+          rm -f codesign.pfx
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-msvc-binaries
+          path: dist/
+
+  # The closest CI gets to "a Windows machine with no Rust installed":
+  # xwin's cross-build only proves the exe *links*, not that it runs --
+  # this actually executes it on a real windows-latest runner.
+  smoke-test-windows:
+    needs: sign-windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-msvc-binaries
+          path: dist
+
+      - name: --version
+        run: dist\anne-x86_64-pc-windows-msvc.exe --version
+
+      # `inventory validate` only parses a local TOML file -- no network,
+      # no target host, no SSH -- so it exercises a real subcommand
+      # without this dry-run job depending on network reachability.
+      - name: no-network subcommand
+        run: dist\anne-x86_64-pc-windows-msvc.exe inventory validate crates\anne-de-breuil-cli\fixtures\inventory\valid.toml
+
+  build-musl:
+    needs: resolve-tag
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve-tag.outputs.tag }}
+
+      - name: Install pinned toolchain
+        run: rustup show
+
+      - uses: Swatinem/rust-cache@v2
+
+      # `ring`/`blake3` compile a handful of C sources as part of the
+      # build; clang cross-compiles both musl targets from one binary with
+      # no target-specific system cross-toolchain package needed, unlike
+      # gcc. `rust-lld` (bundled with every rustup toolchain) is the
+      # linker for the same reason -- it's architecture-agnostic, so both
+      # x86_64 and aarch64 link the same way without an apt-installed
+      # cross-binutils. Verified locally in T29 against both musl targets.
+      - name: Install clang
+        run: sudo apt-get update && sudo apt-get install -y clang
+
+      - name: Resolve rust-lld path
+        run: |
+          host_triple=$(rustc -vV | sed -n 's/^host: //p')
+          echo "RUST_LLD=$(rustc --print sysroot)/lib/rustlib/${host_triple}/bin/rust-lld" >> "$GITHUB_ENV"
+
+      - name: Build x86_64-unknown-linux-musl
+        env:
+          CC_x86_64_unknown_linux_musl: clang
+          RUSTFLAGS: "-C linker=${{ env.RUST_LLD }} -C linker-flavor=ld.lld"
+        run: cargo build --release --target x86_64-unknown-linux-musl -p anne-de-breuil-cli
+
+      - name: Build aarch64-unknown-linux-musl
+        env:
+          CC_aarch64_unknown_linux_musl: clang
+          RUSTFLAGS: "-C linker=${{ env.RUST_LLD }} -C linker-flavor=ld.lld"
+        run: cargo build --release --target aarch64-unknown-linux-musl -p anne-de-breuil-cli
+
+      # `ldd` reports "not a dynamic executable" for a real static binary
+      # without needing to execute it (it inspects the ELF program headers
+      # for PT_INTERP first) -- true for the aarch64 exe too, even though
+      # this runner can't execute aarch64 code. `readelf -d` is the
+      # fallback if ldd's wording ever drifts: no NEEDED entries in the
+      # dynamic section is the same underlying fact ldd is reporting.
+      - name: Verify static linking
+        run: |
+          set -euo pipefail
+          for exe in target/x86_64-unknown-linux-musl/release/anne target/aarch64-unknown-linux-musl/release/anne; do
+            file "$exe"
+            ldd_out=$(ldd "$exe" 2>&1 || true)
+            echo "$ldd_out"
+            if echo "$ldd_out" | grep -qiE "not a dynamic executable|statically linked"; then
+              echo "$exe: confirmed static via ldd"
+            elif ! readelf -d "$exe" 2>/dev/null | grep -q NEEDED; then
+              echo "$exe: no NEEDED entries in dynamic section (readelf)"
+            else
+              echo "$exe: could not confirm static linking" >&2
+              exit 1
+            fi
+          done
+
+      - name: Stage artifacts
+        run: |
+          mkdir -p dist
+          cp target/x86_64-unknown-linux-musl/release/anne dist/anne-x86_64-unknown-linux-musl
+          cp target/aarch64-unknown-linux-musl/release/anne dist/anne-aarch64-unknown-linux-musl
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: musl-binaries
+          path: dist/
+
+  sbom-and-checksums:
+    needs: [resolve-tag, sign-windows, build-musl]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: "*-binaries"
+          merge-multiple: true
+
+      # Runs against the final artifact bytes (post-signing for the
+      # Windows exes) -- an SBOM or checksum computed before signing would
+      # describe bytes nobody actually receives. Installed via syft's own
+      # documented install script rather than a wrapper action, since the
+      # exact CLI invocation below is what was verified locally against a
+      # real build in T29 (`syft dir:. -o cyclonedx-json=...`).
+      - name: Install syft
+        run: curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+
+      - name: Generate CycloneDX SBOM
+        run: |
+          syft dir:. \
+            --source-name anne-de-breuil \
+            --source-version "${{ needs.resolve-tag.outputs.tag }}" \
+            -o cyclonedx-json=dist/anne-de-breuil.cdx.json
+
+      - name: Write checksums
+        run: cargo run -p xtask -- checksum write dist/SHA256SUMS.txt dist/anne-*
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-metadata
+          path: |
+            dist/anne-de-breuil.cdx.json
+            dist/SHA256SUMS.txt
+
+  publish-release:
+    needs: [resolve-tag, smoke-test-windows, sbom-and-checksums]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: "*-binaries"
+          merge-multiple: true
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-metadata
+          path: dist
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.resolve-tag.outputs.tag }}
+          files: dist/*

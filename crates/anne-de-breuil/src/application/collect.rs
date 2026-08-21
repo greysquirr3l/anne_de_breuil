@@ -129,6 +129,23 @@ pub struct RedactionPolicy {
     pub include_disabled_firewall_rules: bool,
 }
 
+impl RedactionPolicy {
+    /// Identical to `#[derive(Default)]`'s output, but callable from a
+    /// `const fn` — the derive macro never emits a `const` associated
+    /// function on stable, so a `const fn new()` collector constructor
+    /// (e.g. [`super::super::adapters::linux_collector::LinuxProcessResolver::new`])
+    /// can't call `RedactionPolicy::default()` directly.
+    #[must_use]
+    pub const fn none() -> Self {
+        Self {
+            include_command_line: false,
+            include_executable_path: false,
+            include_service_path: false,
+            include_disabled_firewall_rules: false,
+        }
+    }
+}
+
 /// Adapter-facing DTO for one firewall rule.
 ///
 /// Fields carry the platform's raw text (e.g. `direction: "Inbound"`,

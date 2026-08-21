@@ -48,7 +48,7 @@ impl LinuxProcessResolver {
     /// semantics — `include_command_line = false` means
     /// `RawProcess.command_line == None` on Windows _and_ Linux.
     #[must_use]
-    pub fn with_redaction_policy(mut self, redaction: RedactionPolicy) -> Self {
+    pub const fn with_redaction_policy(mut self, redaction: RedactionPolicy) -> Self {
         self.redaction = redaction;
         self
     }

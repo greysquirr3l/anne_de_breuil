@@ -128,6 +128,45 @@ a {
   color: var(--exposure-all);
 }
 
+.executive-summary {
+  font-size: 1.05em;
+}
+
+/* T26 editorial annotation: the single highest-priority finding, if any,
+   called out italic-serif per this task's own primitive description.
+   `domain::annotations::DiagramAnchor` can only name a diagram by
+   category, never address a specific shape inside one (T25 assigns no
+   `id` to any diagram element -- see that type's doc comment), so the
+   "leader line into the diagram" is a small decorative dashed Bezier
+   drawn inside the callout itself (`.annotation-leader`/
+   `.annotation-leader-path`), not a literal pointer at a pixel position;
+   the target diagram is named in the callout's own prose instead. The
+   left accent border stands in for "sitting in the margin" -- a true
+   floated page margin would need a two-column print/screen layout this
+   report's single-column shell doesn't otherwise have, and forcing one in
+   just for this callout would be a bigger, unrelated layout change. */
+.annotation {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-serif);
+  font-style: italic;
+  border-left: 2px dashed var(--accent);
+  padding: 4px 0 4px 12px;
+  margin: 0 0 16px 0;
+}
+
+.annotation-leader {
+  flex: none;
+}
+
+.annotation-leader-path {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-dasharray: 4 4;
+}
+
 /* Reading-progress bar and section-reveal animations: opt-in only when the
    visitor hasn't asked for reduced motion. Every rule referencing
    animation-timeline anywhere in this file lives inside this one query --

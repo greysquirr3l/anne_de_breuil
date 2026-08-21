@@ -12,8 +12,16 @@
 //! T25 (this module's second author) adds the report's five server-rendered
 //! SVG diagrams on top of that shell.
 //!
+//! T26 (this module's third author) adds the executive summary and the
+//! single editorial annotation callout, both generated from
+//! [`crate::domain::annotations`] — see [`annotation_view`] for the
+//! presentation-layer mapping.
+//!
 //! # Module layout
 //!
+//! - [`annotation_view`] maps a `domain::annotations::Annotation` into the
+//!   headline/target-label/leader-line markup `templates/summary.html`
+//!   renders.
 //! - [`view`] builds the per-host and fleet-summary template structs
 //!   directly from [`ReportModel`] data (labels, CSS classes, three
 //!   pre-sorted endpoint row sets per host, and — as of T25 — the
@@ -80,6 +88,7 @@
 //! written); [`diagrams`]'s own test modules carry the equivalent
 //! SVG-context escaping checks against the real `<svg>` output T25 adds.
 
+mod annotation_view;
 mod diagrams;
 mod templates;
 mod view;
@@ -317,6 +326,117 @@ mod tests {
             TargetStrategy::LocalOnly,
         );
         ReportModel::build(&[snapshot], None, true).expect("fixture model builds")
+    }
+
+    /// A single loopback endpoint, never unsigned, no drift -- "no
+    /// findings" per `domain::annotations::has_no_findings`.
+    fn clean_model() -> ReportModel {
+        let endpoint = Endpoint::new(
+            Protocol::Tcp,
+            BindAddress::from_str("127.0.0.1").expect("valid ip"),
+            Port::try_from(8080u16).expect("nonzero port"),
+            None,
+            None,
+            vec![],
+            SignatureStatus::Unknown,
+            None,
+        );
+        model_from_endpoints(vec![endpoint])
+    }
+
+    /// A single unsigned, all-interfaces-bound endpoint -- exactly the
+    /// shape `domain::annotations::select_annotation` picks out.
+    fn model_with_unsigned_all_interfaces_listener(port: u16) -> ReportModel {
+        let endpoint = Endpoint::new(
+            Protocol::Tcp,
+            BindAddress::from_str("0.0.0.0").expect("valid ip"),
+            Port::try_from(port).expect("nonzero port"),
+            None,
+            Some(ProcessPath::from_str("/usr/sbin/telnetd").expect("non-empty path")),
+            vec![],
+            SignatureStatus::Unsigned,
+            None,
+        );
+        model_from_endpoints(vec![endpoint])
+    }
+
+    /// A baseline-vs-current diff producing three distinct drift
+    /// severities in one report: a `Critical` all-interfaces appearance, a
+    /// `High` specific-interface appearance, and a `Low` loopback
+    /// appearance -- see `domain::drift::severity_for`.
+    fn mixed_severity_drift_model() -> ReportModel {
+        use crate::domain::drift::diff;
+
+        let host_id = HostId::generate();
+        let baseline = ScanSnapshot::new(
+            host_id,
+            ScanId::generate(),
+            time::OffsetDateTime::UNIX_EPOCH,
+            "1.0.0".to_owned(),
+            vec![],
+            vec![],
+            vec![],
+            TargetStrategy::Execute,
+        );
+        let all_interfaces = Endpoint::new(
+            Protocol::Tcp,
+            BindAddress::from_str("0.0.0.0").expect("valid ip"),
+            Port::try_from(443u16).expect("nonzero port"),
+            None,
+            None,
+            vec![],
+            SignatureStatus::Unknown,
+            None,
+        );
+        let specific_interface = Endpoint::new(
+            Protocol::Tcp,
+            BindAddress::from_str("10.0.0.5").expect("valid ip"),
+            Port::try_from(8081u16).expect("nonzero port"),
+            None,
+            None,
+            vec![],
+            SignatureStatus::Unknown,
+            None,
+        );
+        let loopback = Endpoint::new(
+            Protocol::Tcp,
+            BindAddress::from_str("127.0.0.1").expect("valid ip"),
+            Port::try_from(9000u16).expect("nonzero port"),
+            None,
+            None,
+            vec![],
+            SignatureStatus::Unknown,
+            None,
+        );
+        let current = ScanSnapshot::new(
+            host_id,
+            ScanId::generate(),
+            time::OffsetDateTime::UNIX_EPOCH,
+            "1.0.0".to_owned(),
+            vec![all_interfaces, specific_interface, loopback],
+            vec![],
+            vec![],
+            TargetStrategy::Execute,
+        );
+        let report = diff(&baseline, &current);
+        assert_eq!(
+            report.entries.len(),
+            3,
+            "fixture must produce three entries"
+        );
+
+        ReportModel::build(&[current], Some(&report), true).expect("mixed-severity model builds")
+    }
+
+    /// Extracts the byte range of the drift table's default-visible
+    /// (`data-sort="severity"`) `<tbody>...</tbody>` from real rendered
+    /// output.
+    fn default_severity_tbody(html: &str) -> &str {
+        let marker = "<tbody data-sort=\"severity\">";
+        let start = html.find(marker).expect("severity tbody present") + marker.len();
+        let rest = html.get(start..).expect("valid slice bounds");
+        let end = rest.find("</tbody>").expect("severity tbody closes");
+        rest.get(..end).expect("valid slice bounds")
     }
 
     /// A synthetic multi-host fleet: `host_count` hosts, `endpoints_per_host`
@@ -690,6 +810,73 @@ mod tests {
         let html = String::from_utf8(buf).expect("utf8");
         assert!(html.contains("drift-summary"));
         assert!(html.contains("endpoint appeared"));
+    }
+
+    #[test]
+    fn executive_summary_prose_renders_near_the_top_of_the_report() {
+        let html = render(&sample_model(), FontsMode::Embed).expect("renders");
+        assert!(html.contains("class=\"executive-summary\""));
+        assert!(html.contains("Scanned 1 hosts"));
+        let summary_pos = html
+            .find("class=\"executive-summary\"")
+            .expect("executive summary present");
+        let first_host_pos = html
+            .find("class=\"host-section\"")
+            .expect("a host section is rendered");
+        assert!(
+            summary_pos < first_host_pos,
+            "executive summary must render before the first host section"
+        );
+    }
+
+    #[test]
+    fn clean_report_emits_no_annotation_markup() {
+        let html = render(&clean_model(), FontsMode::Embed).expect("renders");
+        assert!(html.contains("Scanned 1 hosts. No findings."));
+        assert!(
+            !html.contains("class=\"annotation\""),
+            "a clean report must not render an (empty or otherwise) annotation callout"
+        );
+        assert!(
+            !html.contains("<aside"),
+            "a clean report must render no <aside> element at all"
+        );
+    }
+
+    #[test]
+    fn annotation_callout_renders_for_a_qualifying_finding() {
+        let html = render(
+            &model_with_unsigned_all_interfaces_listener(23),
+            FontsMode::Embed,
+        )
+        .expect("renders");
+        assert!(html.contains("class=\"annotation\""));
+        assert!(html.contains("Port 23"));
+        // The stylesheet always defines `.annotation-leader{-path}` (a
+        // static rule, present regardless of whether any report has a
+        // finding) -- checking for the element's own `class="..."`
+        // attribute (quoted, no leading dot) is what actually proves the
+        // decorative leader-line SVG rendered into the document body.
+        assert!(html.contains("class=\"annotation-leader\""));
+        assert!(html.contains("the exposure map"));
+    }
+
+    #[test]
+    fn drift_rows_render_severity_first_by_default_not_port_number() {
+        let model = mixed_severity_drift_model();
+        let mut buf = Vec::new();
+        write_report_streaming(&model, FontsMode::Embed, &mut buf).expect("streams");
+        let html = String::from_utf8(buf).expect("utf8");
+
+        let tbody = default_severity_tbody(&html);
+        let critical_pos = tbody.find(">critical<").expect("a critical row is present");
+        let high_pos = tbody.find(">high<").expect("a high row is present");
+        let low_pos = tbody.find(">low<").expect("a low row is present");
+        assert!(
+            critical_pos < high_pos && high_pos < low_pos,
+            "default drift row order must be severity-descending, not port-ascending: \
+             critical={critical_pos}, high={high_pos}, low={low_pos}"
+        );
     }
 
     #[test]

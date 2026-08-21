@@ -19,6 +19,7 @@
 
 use askama::Template;
 
+use super::annotation_view::{self, AnnotationView};
 use super::diagrams;
 use crate::domain::exposure::Exposure;
 use crate::domain::publisher::SignatureStatus;
@@ -410,6 +411,16 @@ fn build_nav_entries(
 #[derive(Template)]
 #[template(path = "summary.html")]
 pub(super) struct SummaryTemplate {
+    /// Plain declarative prose generated from `Rollup`'s real counts --
+    /// `domain::annotations::executive_summary` -- rendered at the top of
+    /// this section, before anything else, per this task's own "executive
+    /// summary at the top" requirement.
+    pub(super) executive_summary: String,
+    /// The single highest-priority finding worth a margin callout, if any
+    /// -- `domain::annotations::select_annotation` by way of
+    /// `annotation_view`. `None` renders no markup at all, never an empty
+    /// callout shell.
+    pub(super) annotation: Option<AnnotationView>,
     pub(super) hosts_scanned: usize,
     pub(super) endpoints_total: usize,
     pub(super) redaction_enabled: bool,
@@ -446,6 +457,8 @@ pub(super) fn summary_template(
     let drift_timeline_svg =
         (!model.drift.is_empty()).then(|| diagrams::render_drift_timeline(&model.drift));
     SummaryTemplate {
+        executive_summary: crate::domain::annotations::executive_summary(&model.rollup),
+        annotation: annotation_view::annotation_view(model),
         hosts_scanned: model.rollup.hosts_scanned,
         endpoints_total: model.hosts.iter().map(|host| host.endpoints.len()).sum(),
         redaction_enabled: model.redaction_enabled,

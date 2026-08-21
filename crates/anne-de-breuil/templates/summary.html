@@ -1,4 +1,13 @@
 <section class="summary hairline">
+  <p class="executive-summary">{{ executive_summary }}</p>
+{% match annotation %}
+{% when Some with (note) %}
+  <aside class="annotation">
+    {{ note.leader_svg|safe }}
+    <p>{{ note.headline }} <span class="muted">See {{ note.target_label }}.</span></p>
+  </aside>
+{% when None %}
+{% endmatch %}
   <p>{{ hosts_scanned }} host(s) scanned, {{ endpoints_total }} endpoint(s) observed.</p>
 {% match redaction_enabled %}
 {% when true %}

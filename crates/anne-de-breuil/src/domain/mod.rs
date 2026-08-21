@@ -5,6 +5,7 @@
 //! way to build one from an unvalidated raw value, so untrusted host data is
 //! parsed exactly once, at the boundary, into these types.
 
+pub mod annotations;
 pub mod attribution;
 pub mod bind_address;
 pub mod confidence;
@@ -41,6 +42,9 @@ pub mod snapshot;
 pub mod svg;
 pub mod target_strategy;
 
+pub use annotations::{
+    Annotation, BANNED_WORDS, DiagramAnchor, executive_summary, select_annotation,
+};
 pub use attribution::Attribution;
 pub use bind_address::BindAddress;
 pub use confidence::Confidence;

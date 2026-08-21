@@ -54,16 +54,39 @@ pub fn render_json(model: &ReportModel, pretty: bool) -> Result<Vec<u8>, ReportR
     })
 }
 
+/// [`EndpointRow`]'s header row, in the same order as its fields.
+///
+/// Written explicitly rather than left to `csv::Writer`'s automatic
+/// header inference: that inference only fires before the *first*
+/// serialized row, so a model with zero endpoints across every host
+/// (a real case — a quiet host, or a scan against nothing listening)
+/// would otherwise produce a completely empty CSV, no header at all,
+/// which breaks any downstream tool expecting a stable column set
+/// regardless of row count. Keep this in sync with [`EndpointRow`]'s
+/// field order by hand — the `csv_has_no_bom_and_stable_column_order`
+/// test pins the exact header string, so a drift between the two is a
+/// test failure, not a silent misalignment.
+const CSV_HEADERS: [&str; 9] = [
+    "host_id",
+    "protocol",
+    "bind_address",
+    "port",
+    "process_path",
+    "hosted_services",
+    "signature_status",
+    "exposure",
+    "reachability",
+];
+
 /// One flattened `(host, endpoint)` row of the CSV table.
 ///
-/// Column order is this struct's declared field order — `csv::Writer`
-/// derives the header row from it, so the header and the data can never
-/// drift apart. `matched_rules` from the task sketch has no equivalent on
-/// [`EndpointView`] (there is no per-endpoint firewall-rule list in the
-/// view model, only a resolved [`ReachabilityView`] verdict); the closest
-/// honest substitute is `hosted_services`, sorted and joined the same way
-/// the sketch's own `matched_rules` comment describes ("sorted, joined —
-/// identical scans produce identical rows").
+/// Column order is this struct's declared field order, matching
+/// [`CSV_HEADERS`]. `matched_rules` from the task sketch has no
+/// equivalent on [`EndpointView`] (there is no per-endpoint firewall-rule
+/// list in the view model, only a resolved [`ReachabilityView`] verdict);
+/// the closest honest substitute is `hosted_services`, sorted and joined
+/// the same way the sketch's own `matched_rules` comment describes
+/// ("sorted, joined — identical scans produce identical rows").
 #[derive(Debug, serde::Serialize)]
 struct EndpointRow {
     host_id: String,
@@ -133,12 +156,19 @@ const fn reachability_text(reachability: ReachabilityView) -> &'static str {
 /// Renders `model` as the flattened endpoint CSV table, one row per
 /// `(host, endpoint)` pair in the model's own stable order.
 ///
+/// The header row is always present, even when `model` has zero
+/// endpoints across every host — see [`CSV_HEADERS`] for why that can't
+/// be left to `csv::Writer`'s automatic header inference.
+///
 /// # Errors
 ///
 /// Returns [`ReportRenderError::Csv`] if serialization fails — see the
 /// module docs for why that never happens against a real `ReportModel`.
 pub fn render_csv(model: &ReportModel) -> Result<Vec<u8>, ReportRenderError> {
-    let mut writer = csv::WriterBuilder::new().from_writer(Vec::new());
+    let mut writer = csv::WriterBuilder::new()
+        .has_headers(false)
+        .from_writer(Vec::new());
+    writer.write_record(CSV_HEADERS)?;
     for host in &model.hosts {
         for endpoint in &host.endpoints {
             writer.serialize(EndpointRow::from_view(host.host_id, endpoint))?;
@@ -492,6 +522,23 @@ mod tests {
             assert!(!report.entries.is_empty(), "fixture must produce drift");
             ReportModel::build(&[current_a, current_b], Some(&report), true).unwrap()
         }
+
+        /// One host, zero endpoints — a quiet host, or a scan against
+        /// nothing listening. A real, unremarkable case, not an edge case
+        /// to special-case away.
+        pub(super) fn report_model_with_no_endpoints() -> ReportModel {
+            let snapshot = ScanSnapshot::new(
+                HostId::generate(),
+                ScanId::generate(),
+                time::OffsetDateTime::UNIX_EPOCH,
+                "1.0.0".to_owned(),
+                vec![],
+                vec![],
+                vec![],
+                TargetStrategy::Execute,
+            );
+            ReportModel::build(&[snapshot], None, true).unwrap()
+        }
     }
 
     #[test]
@@ -525,6 +572,21 @@ mod tests {
         let header = String::from_utf8_lossy(&csv_bytes[..newline]);
         assert_eq!(
             header,
+            "host_id,protocol,bind_address,port,process_path,hosted_services,signature_status,exposure,reachability"
+        );
+    }
+
+    #[test]
+    fn csv_header_is_present_even_with_zero_endpoints() {
+        // `csv::Writer`'s automatic header inference only fires before the
+        // first serialized row — a model with no endpoints at all must
+        // still produce a header, not an empty file, or a downstream tool
+        // (spreadsheet import, SIEM ingester) sees an unparseable blank
+        // where it expects a stable column set.
+        let csv_bytes = render_csv(&fixtures::report_model_with_no_endpoints()).unwrap();
+        let text = String::from_utf8(csv_bytes).unwrap();
+        assert_eq!(
+            text.trim_end(),
             "host_id,protocol,bind_address,port,process_path,hosted_services,signature_status,exposure,reachability"
         );
     }

@@ -7,5 +7,6 @@
 host_id = "11111111-1111-1111-1111-111111111111"
 address = "10.0.0.10"
 port = 22
+user = "ops"
 auth = "agent"
 environment = "production"

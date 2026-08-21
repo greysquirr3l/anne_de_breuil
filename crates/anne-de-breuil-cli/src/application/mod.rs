@@ -5,4 +5,5 @@ pub mod diff;
 pub mod inventory;
 pub mod report;
 pub mod scan;
+pub mod self_hash;
 pub mod version;

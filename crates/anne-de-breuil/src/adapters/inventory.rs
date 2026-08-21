@@ -23,6 +23,14 @@ pub struct InventoryHost {
     pub address: HostAddress,
     /// The port the remote transport connects on.
     pub port: Port,
+    /// The remote account the transport authenticates as.
+    ///
+    /// Required, not defaulted: guessing a login account for an unattended
+    /// fleet scan (e.g. silently trying `"root"`) is exactly the kind of
+    /// ambient assumption this crate avoids elsewhere in `AuthMethod`'s own
+    /// doc comment. An operator names the account explicitly, the same way
+    /// they name `auth`.
+    pub user: String,
     /// How to authenticate to this host.
     pub auth: AuthMethod,
     /// An optional jump/bastion host the connection is routed through.
@@ -136,5 +144,17 @@ mod tests {
         "#;
         let err = toml::from_str::<InventoryHost>(toml).unwrap_err();
         assert!(err.to_string().contains("unknown field"));
+    }
+
+    #[test]
+    fn missing_user_field_is_rejected() {
+        let toml = r#"
+            host_id = "11111111-1111-1111-1111-111111111111"
+            address = "10.0.0.5"
+            port = 22
+            auth = "agent"
+        "#;
+        let err = toml::from_str::<InventoryHost>(toml).unwrap_err();
+        assert!(err.to_string().contains("missing field") && err.to_string().contains("user"));
     }
 }

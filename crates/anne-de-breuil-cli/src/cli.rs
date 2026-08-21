@@ -154,21 +154,19 @@ pub struct ScanArgs {
     #[arg(long)]
     pub emit_json: bool,
 
-    // TODO(T31): wire this into `anne_de_breuil::adapters::config::AnneConfig::load`
-    // alongside the rest of the local-collector integration. Two things need
-    // to happen together, not separately, when that lands: (1) `scan_local`
-    // needs to actually read the loaded `ScanConfig` instead of the
-    // `LocalCollectorSet` stub it uses today, and (2) `ANNE_LOG_FORMAT` (read
-    // directly via `std::env::var` in `main.rs`, never through `AnneConfig`)
-    // needs to be renamed outside the `ANNE_` prefix first — confirmed by a
-    // scratch build against the real `AnneConfig::load` that a bare
-    // `ANNE_LOG_FORMAT` in the process environment fails as an unknown
-    // top-level field (`log_format`) even under the `__`-section-separator
-    // fix, because it has no `__` in it to split on and lands as a
-    // single-segment top-level key. Left unwired here rather than papered
-    // over, since fixing only one half would either silently ignore
-    // `--config` or reintroduce the exact env-var collision already fixed
-    // once for `ANNE_CLI_GIT_HASH`.
+    /// Loads `anne_de_breuil::adapters::config::AnneConfig` from this path
+    /// and layers its `[scan]`/`[remote]`/`[store]` sections under whatever
+    /// flags were also passed — see `application::scan::resolve_config`.
+    /// Omitted entirely: every section falls back to its own built-in
+    /// `Default`, exactly as before this flag existed (`[store]` has no
+    /// `Default`, so `AnneConfig::load` is only ever called when this flag
+    /// is actually given — see `resolve_config`'s doc comment for why).
+    ///
+    /// `ANNE_LOG_FORMAT` (read directly via `std::env::var` in `main.rs`,
+    /// never through `AnneConfig`) still isn't renamed out of the `ANNE_`
+    /// prefix (a pre-existing, unrelated collision `AnneConfig::load` would
+    /// hit if that var happens to be set — see the T18 learning in
+    /// `PROGRESS.md`); this flag's own wiring doesn't touch that.
     #[arg(long, value_name = "FILE")]
     pub config: Option<PathBuf>,
 }

@@ -59,7 +59,16 @@
 //! bearer-token auth — behind `portal`, which implies `report-html` (see
 //! that feature's own comment in `Cargo.toml`) since host/scan detail
 //! pages render through [`html_report`] rather than a second pipeline.
+//! [`binary_hash`] is the fifteenth: SHA-256 hashing this process's own
+//! executable file, shared by `anne --self-hash` and [`remote_scanner`]'s
+//! `Execute` path — always compiled in, hashing a local file has no
+//! platform dependency. [`remote_scanner`] is the sixteenth:
+//! [`crate::application::fanout::HostScanner`] implemented for real,
+//! behind the `ssh` feature (T31) — `SshTransport` for
+//! `TargetStrategy::Execute`, `HttpProber`/`TlsProber` for
+//! `TargetStrategy::Probe`.
 
+pub mod binary_hash;
 pub mod config;
 pub mod inventory;
 pub mod prober;
@@ -85,6 +94,9 @@ pub mod linux_collector;
 
 #[cfg(feature = "ssh")]
 pub mod ssh_transport;
+
+#[cfg(feature = "ssh")]
+pub mod remote_scanner;
 
 #[cfg(feature = "portal")]
 pub mod portal;

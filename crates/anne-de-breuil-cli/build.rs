@@ -2,23 +2,29 @@
 //! `anne version` prints the build provenance, matching the task's "version
 //! prints semver plus the git SHA embedded by build.rs" requirement.
 //!
-//! `cargo:rustc-env` is compile-time only — scoped to this crate's own
-//! rustc invocation, never a process-wide environment variable — so unlike
-//! an earlier version of this script (which paired it with a workspace
-//! `.cargo/config.toml [env]` entry to try to keep it stable across
-//! concurrent `cargo build`/rust-analyzer `cargo check` invocations), it
-//! can never leak into an unrelated crate's runtime environment. That
-//! `[env]` entry was removed: it didn't even feed this script (which always
-//! re-derives the SHA via `git`, never reads its own env var back), and its
-//! only real effect was setting a real `ANNE_CLI_GIT_HASH` process env var
-//! that collided with `AnneConfig::load`'s `ANNE_`-prefixed config-override
-//! scan in every test process cargo spawned. The actual cache-stability
-//! concern the `[env]` entry was reaching for is handled correctly below,
-//! via `cargo:rerun-if-changed` on the paths that can change the SHA.
+//! `cargo:rustc-env` sets a real environment variable for `cargo
+//! test`/`cargo run` invocations of this same package, not just a
+//! compile-time constant for `env!()` — confirmed empirically (T31) by
+//! dumping `std::env::vars()` from a running test binary, contradicting an
+//! earlier version of this comment's claim that it "can never leak into
+//! ... runtime environment." An earlier version of this script paired the
+//! same key with a workspace `.cargo/config.toml [env]` entry (removed:
+//! it didn't even feed this script, which always re-derives the SHA via
+//! `git` rather than reading its own env var back) — that entry's only
+//! real effect was making the same collision permanent across every
+//! process on the machine, not just `cargo test`'s own child processes.
+//! `ENV_KEY` is deliberately *not* `ANNE_`-prefixed for exactly this
+//! reason: any name under that prefix collides with
+//! `AnneConfig::load`'s `Env::prefixed("ANNE_")` config-override scan the
+//! moment anything in this crate actually calls `load` — see
+//! `application::version`'s own doc comment on `GIT_HASH` for where this
+//! was actually caught. The cache-stability concern the removed `[env]`
+//! entry was reaching for is handled correctly below, via
+//! `cargo:rerun-if-changed` on the paths that can change the SHA.
 
 use std::process::Command;
 
-const ENV_KEY: &str = "ANNE_CLI_GIT_HASH";
+const ENV_KEY: &str = "CLI_GIT_HASH";
 
 fn main() {
     // Re-run only when HEAD moves (new commit, checkout, rebase) or the

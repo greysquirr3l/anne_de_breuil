@@ -119,15 +119,16 @@ pub enum HostError {
 /// [`crate::application::remote`]'s own contract), so callers always know
 /// which tier applies to a host even when the scan attempt itself fails or
 /// times out.
-///
-// TODO(T31): this port has no real production implementation yet. A real
-// HostScanner composing SshTransport::connect (T15) for
-// TargetStrategy::Execute, HttpProber/TlsProber (T09/T10) for
-// TargetStrategy::Probe, and the collector-push-and-run path
-// (push_exec_collect_remove, T15) is genuinely later work: it depends on
-// T18 shipping a collector binary that speaks --emit-json/--self-hash.
-// This module (T16) only builds the port and the orchestration that
-// drives it, exercised against #[cfg(test)] fakes.
+/// The production implementation is
+/// [`crate::adapters::remote_scanner::SshHostScanner`] (behind the `ssh`
+/// feature, T31): it composes `SshTransport::connect` (T15) for
+/// `TargetStrategy::Execute` — pushing this same running binary to the
+/// target and running it with `--self-hash`/`--emit-json` — and
+/// `HttpProber`/`TlsProber` (T09/T10) against a small, bounded candidate
+/// port set for `TargetStrategy::Probe`. This module (T16) only declares
+/// the port and the orchestration that drives it; the fakes in this file's
+/// own test module exercise that orchestration independent of which real
+/// collection pipeline eventually backs it.
 #[async_trait]
 pub trait HostScanner: Send + Sync {
     /// Decides which collection tier is available for `host`.
@@ -440,6 +441,7 @@ mod tests {
                 host_id: HostId::generate(),
                 address: HostAddress::try_from(format!("host-{i}.internal")).unwrap(),
                 port: Port::try_from(22u16).unwrap(),
+                user: "anne".to_owned(),
                 auth: AuthMethod::Agent,
                 jump: None,
                 tags: vec![],

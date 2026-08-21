@@ -35,18 +35,23 @@
 //! after the spawning task exits, right up until the runtime itself shuts
 //! down.
 //!
-//! # Self-hash verification's `T18` dependency
+//! # Self-hash verification, exercised for real (T31)
 //!
 //! [`SshTransport::push_exec_collect_remove`] implements the *client* side
 //! of self-hash verification in full: it pushes the collector binary, runs
 //! it with `--self-hash`, and rejects the run if the echoed hash doesn't
-//! match the hash the caller computed locally before push. It cannot,
-//! however, be exercised end-to-end against the real collector binary yet
-//! -- that binary supporting `--self-hash`/`--emit-json` at all is T18's
-//! scope, not this task's. [`push_exec_collect_remove_round_trip`]'s test
-//! below stands a small fixture script in for the real collector to prove
-//! the SSH-side plumbing (push, hash-check, exec, JSON decode, cleanup) is
-//! correct; wiring it to the real collector binary is T18 work.
+//! match the hash the caller computed locally before push.
+//! [`push_exec_collect_remove_round_trip`]'s test below stands a small
+//! fixture script in for the real collector, proving the SSH-side plumbing
+//! (push, hash-check, exec, JSON decode, cleanup) correct in isolation.
+//! `crates/anne-de-breuil-cli/tests/remote_scan_end_to_end.rs` (T31) goes
+//! further and runs this against the real `anne` binary end to end -- that
+//! test is what actually caught `run_and_collect`'s `--emit-json` exec
+//! invoking a bare `anne --emit-json`, which the real CLI has never
+//! accepted (there is no top-level `--emit-json` flag, only
+//! `ScanArgs::emit_json` under the `scan` subcommand); a fixture script
+//! doesn't care about subcommand structure, so this went unnoticed until
+//! something that does was actually pushed and run.
 
 mod exec;
 mod handler;
@@ -140,7 +145,12 @@ impl SshTransport {
     ///
     /// Returns [`TransportError::IntegrityMismatch`] if the remote's
     /// self-reported hash doesn't match `expected_hash`, or any
-    /// [`TransportError`] the underlying push/exec/remove calls produce.
+    /// [`TransportError`] the underlying push/exec calls produce. A
+    /// `remove` failure that happens *after* a successful collect is
+    /// swallowed (best-effort) rather than surfaced here -- a scan that
+    /// already succeeded must not be discarded because the cleanup step
+    /// that follows it failed; see [`RemoteArtifactGuard`]'s own doc
+    /// comment for why an orphaned artifact is harmless.
     pub async fn push_exec_collect_remove(
         self: &Arc<Self>,
         collector_binary: &Path,
@@ -151,7 +161,17 @@ impl SshTransport {
         let guard = RemoteArtifactGuard::new(Arc::clone(self), remote_path.clone());
 
         match run_and_collect(self, &remote_path, expected_hash).await {
-            Ok(snapshot) => guard.remove_now().await.map(|()| snapshot),
+            Ok(snapshot) => {
+                // A cleanup failure here must not discard a scan that
+                // already succeeded -- the caller asked for a snapshot and
+                // got a real one; losing it because the *following*
+                // best-effort cleanup step failed would be strictly worse
+                // than an orphaned remote artifact (the next scan of this
+                // host pushes to a fresh, unrelated random path, so nothing
+                // downstream ever reuses or collides with a leftover one).
+                let _ = guard.remove_now().await;
+                Ok(snapshot)
+            }
             Err(err) => {
                 // Best-effort in the sense that a remove failure here
                 // doesn't overwrite the original, more informative error --
@@ -177,8 +197,18 @@ async fn run_and_collect(
         return Err(TransportError::IntegrityMismatch);
     }
 
+    // `scan` is required here, unlike `--self-hash` above: the real `anne`
+    // CLI has no top-level `--emit-json` flag, only `ScanArgs::emit_json`
+    // under the `scan` subcommand (`cli::Command::Scan`) -- confirmed the
+    // hard way (T31) by an end-to-end test against a real pushed `anne`
+    // binary, which failed decoding empty stdout until this line named
+    // the subcommand. `--self-hash` gets away with a bare invocation only
+    // because `main` intercepts it *before* `Cli::parse()` ever runs.
     let output = transport
-        .exec(&RemoteCommand::new(remote_path.as_str(), ["--emit-json"]))
+        .exec(&RemoteCommand::new(
+            remote_path.as_str(),
+            ["scan", "--emit-json"],
+        ))
         .await?;
     serde_json::from_slice(&output.stdout).map_err(TransportError::from)
 }

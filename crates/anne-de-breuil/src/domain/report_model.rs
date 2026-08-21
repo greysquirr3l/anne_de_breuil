@@ -22,9 +22,15 @@
 //! (`adapters::prober`, `adapters::tls_probe`, `domain::fingerprint`,
 //! `domain::reconciliation`), which has no call site that folds its output
 //! into a `ScanSnapshot`. Fabricating either count from data that isn't
-//! actually evidence-backed would be worse than an honest zero. TODO(T31
-//! integration-wiring): thread observed identities and certificate
-//! findings into `ScanSnapshot` so these can be computed for real.
+//! actually evidence-backed would be worse than an honest zero.
+//!
+//! Confirmed still true as of the T31 integration-wiring audit: threading
+//! observed identities and certificate findings into `ScanSnapshot` is a
+//! distinct, large feature (a new evidence-carrying field on the
+//! aggregate, plus a real call site folding the fingerprint/reconciliation
+//! pipeline's output into it) — deliberately not attempted as part of that
+//! audit. See `docs/integration-wiring-audit.md` for the full writeup; no
+//! task currently owns closing this gap.
 
 use crate::domain::bind_address::BindAddress;
 use crate::domain::drift::{DriftEntry, DriftKind, DriftReport, EndpointKey, Severity};

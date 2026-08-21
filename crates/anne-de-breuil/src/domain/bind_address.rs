@@ -22,6 +22,17 @@ impl BindAddress {
     }
 }
 
+impl From<IpAddr> for BindAddress {
+    /// An already-parsed [`IpAddr`] needs no further validation — this is
+    /// the infallible counterpart to [`core::str::FromStr`] below, for
+    /// callers (e.g. `adapters::remote_scanner::probe`) that already hold a
+    /// real `IpAddr` from a DNS resolution or a socket address rather than
+    /// untrusted text.
+    fn from(ip: IpAddr) -> Self {
+        Self(ip)
+    }
+}
+
 impl core::str::FromStr for BindAddress {
     type Err = DomainError;
 
@@ -58,5 +69,11 @@ mod tests {
     #[test]
     fn rejects_malformed_address() {
         assert!("not-an-ip".parse::<BindAddress>().is_err());
+    }
+
+    #[test]
+    fn from_ip_addr_round_trips() {
+        let ip: IpAddr = "10.0.0.5".parse().unwrap();
+        assert_eq!(BindAddress::from(ip).ip(), ip);
     }
 }

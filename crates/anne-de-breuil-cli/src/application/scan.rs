@@ -6,21 +6,72 @@
 //! reason the task calls out: stdout under `--emit-json` carries the
 //! snapshot bytes and nothing else, ever. Interactive mode is free to
 //! print a human-readable summary to stdout and to keep stderr busy.
+//! `--emit-json` has no defined stdout contract for a multi-host fan-out
+//! result, so it stays local-scan-only — combining it with
+//! `--target`/`--inventory` is rejected outright rather than silently
+//! scanning the local machine instead of the host the operator asked for.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{Context, Result, anyhow};
 use tracing::{info, warn};
 
 use crate::cli::{ExitCode, ScanArgs, StrategyArg};
+use anne_de_breuil::adapters::config::{
+    AnneConfig, RemoteConfig, ScanConfig, StoreBackend, StoreConfig,
+};
+use anne_de_breuil::adapters::inventory::parse_inventory;
+use anne_de_breuil::adapters::remote_scanner::{SshHostScanner, SshHostScannerConfig};
+use anne_de_breuil::adapters::snapshot_store::FsSnapshotStore;
+use anne_de_breuil::adapters::ssh_transport::{DEFAULT_MAX_OUTPUT_BYTES, KnownHosts};
 use anne_de_breuil::application::collect::{
     CollectError, CollectedEndpoint, ProcessAttribution, collect_endpoints,
 };
+use anne_de_breuil::application::fanout::{HostOutcome, HostScanner, run_fanout};
+use anne_de_breuil::application::identify::ProbeConfig;
 use anne_de_breuil::application::snapshot_store::{SnapshotStore, StoreError};
 use anne_de_breuil::domain::{
     Endpoint, HostId, IdempotencyKey, ScanId, ScanSnapshot, TargetStrategy,
 };
+
+/// The `[scan]`/`[remote]`/`[store]` config sections relevant to this
+/// command, resolved either from `--config` or from each section's own
+/// built-in `Default`.
+///
+/// Deliberately *not* `AnneConfig::load(some_default_path)` when
+/// `--config` is absent: `StoreConfig` has no `Default` (an operator must
+/// say explicitly where scan data lands, see its own doc comment), so
+/// calling `load` unconditionally would make every `anne scan` invocation
+/// that never asked for `--config` start failing the moment neither a file
+/// nor the environment supplies `[store]`. Loading only happens when the
+/// flag is actually given — every existing call site that constructs
+/// `ScanArgs` without `--config` keeps working exactly as before this
+/// existed.
+struct ResolvedConfig {
+    scan: ScanConfig,
+    remote: RemoteConfig,
+    store: Option<StoreConfig>,
+}
+
+fn resolve_config(args: &ScanArgs) -> Result<ResolvedConfig> {
+    match &args.config {
+        Some(path) => {
+            let config = AnneConfig::load(path)
+                .with_context(|| format!("loading config from {}", path.display()))?;
+            Ok(ResolvedConfig {
+                scan: config.scan,
+                remote: config.remote,
+                store: Some(config.store),
+            })
+        }
+        None => Ok(ResolvedConfig {
+            scan: ScanConfig::default(),
+            remote: RemoteConfig::default(),
+            store: None,
+        }),
+    }
+}
 
 /// Dispatch `args` to either the bare-stdout emitter mode or the
 /// interactive scan path.
@@ -28,10 +79,18 @@ use anne_de_breuil::domain::{
 /// `emit_json` is the contract: stdout = exactly one `ScanSnapshot`,
 /// stderr = everything else.
 pub async fn run(args: ScanArgs) -> Result<ExitCode> {
+    let resolved = match resolve_config(&args) {
+        Ok(resolved) => resolved,
+        Err(e) => {
+            eprintln!("error: {e:?}");
+            return Ok(ExitCode::ConfigOrArgError);
+        }
+    };
+
     if args.emit_json {
-        run_emit_json(args).await
+        run_emit_json(args, &resolved).await
     } else {
-        run_interactive(args).await
+        run_interactive(args, &resolved).await
     }
 }
 
@@ -40,8 +99,17 @@ pub async fn run(args: ScanArgs) -> Result<ExitCode> {
 ///
 /// Tracing was installed by `main` with stderr writer — so even at
 /// `RUST_LOG=trace` nothing leaks to stdout here.
-async fn run_emit_json(args: ScanArgs) -> Result<ExitCode> {
-    let snapshot = match scan_local(&args).await {
+async fn run_emit_json(args: ScanArgs, resolved: &ResolvedConfig) -> Result<ExitCode> {
+    if args.inventory.is_some() || args.target.is_some() {
+        eprintln!(
+            "--emit-json only supports a local scan; there is no defined single-snapshot \
+             stdout contract for a multi-host remote fan-out -- drop --target/--inventory, or \
+             drop --emit-json and use the interactive remote scan path instead"
+        );
+        return Ok(ExitCode::ConfigOrArgError);
+    }
+
+    let snapshot = match scan_local(&args, &resolved.scan).await {
         Ok(s) => s,
         Err(e) => {
             tracing::error!(error = %e, "local scan failed in --emit-json mode");
@@ -55,17 +123,19 @@ async fn run_emit_json(args: ScanArgs) -> Result<ExitCode> {
     Ok(ExitCode::Clean)
 }
 
-/// Interactive mode: collect locally (or fan out, if `--inventory` is set),
-/// persist each snapshot, and print a one-line human summary per host.
-async fn run_interactive(args: ScanArgs) -> Result<ExitCode> {
+/// Interactive mode: collect locally, fan out over `--inventory`, or
+/// acknowledge (without contacting anything) a `--target` that has no
+/// login/auth information to connect with yet — then persist and print a
+/// human summary.
+async fn run_interactive(args: ScanArgs, resolved: &ResolvedConfig) -> Result<ExitCode> {
     if let Some(inventory_path) = args.inventory.clone() {
-        return Ok(run_remote_fanout(&args, &inventory_path));
+        return run_remote_fanout(&args, &inventory_path, resolved).await;
     }
     if let Some(target) = args.target.as_deref() {
         return Ok(run_remote_single_target(&args, target));
     }
 
-    let snapshot = match scan_local(&args).await {
+    let snapshot = match scan_local(&args, &resolved.scan).await {
         Ok(s) => s,
         Err(e) => {
             tracing::error!(error = %e, "local scan failed");
@@ -74,7 +144,14 @@ async fn run_interactive(args: ScanArgs) -> Result<ExitCode> {
     };
 
     let host_id = snapshot.host_id;
-    match persist(&args, &snapshot).await {
+    let store = match build_store(args.store.as_deref(), resolved.store.as_ref()) {
+        Ok(store) => store,
+        Err(e) => {
+            eprintln!("error: {e:?}");
+            return Ok(ExitCode::ConfigOrArgError);
+        }
+    };
+    match persist(store.as_ref(), &snapshot).await {
         Ok(scan_id) => {
             println!("scanned host {host_id}; snapshot {scan_id} persisted");
             Ok(ExitCode::Clean)
@@ -88,9 +165,17 @@ async fn run_interactive(args: ScanArgs) -> Result<ExitCode> {
 
 /// Collect one snapshot from the local host using whatever collector
 /// adapter matches this build's feature set.
-async fn scan_local(args: &ScanArgs) -> Result<ScanSnapshot> {
-    let (collector_set, _guard) =
-        crate::adapters::collector_factory::local_collectors(args.include_udp);
+///
+/// `include_udp` merges the CLI flag with `[scan]`'s config value (either
+/// one turning it on is enough); `include_loopback`/`skip_signature` stay
+/// CLI-only for now, since the local collector this crate actually
+/// constructs (`adapters::collector_factory::local_collectors`) is a
+/// documented stub that ignores every option regardless of source — a
+/// real local-collector wiring is a separate, larger gap, tracked in
+/// `docs/integration-wiring-audit.md`, not this task's scope.
+async fn scan_local(args: &ScanArgs, scan_config: &ScanConfig) -> Result<ScanSnapshot> {
+    let include_udp = args.include_udp || scan_config.include_udp;
+    let (collector_set, _guard) = crate::adapters::collector_factory::local_collectors(include_udp);
 
     let collected = collect_endpoints(&collector_set)
         .await
@@ -108,8 +193,8 @@ async fn scan_local(args: &ScanArgs) -> Result<ScanSnapshot> {
         env!("CARGO_PKG_VERSION").to_owned(),
         endpoints,
         // Firewall rules/profiles are pulled directly by the adapter in a
-        // real wiring (T31); for now the local scan reports an empty
-        // policy through the cross-platform collector-factory stub.
+        // real wiring; the cross-platform collector-factory stub reports
+        // none today — see this function's own doc comment.
         vec![],
         vec![],
         forced_strategy(args.strategy),
@@ -167,35 +252,143 @@ const fn forced_strategy(arg: StrategyArg) -> TargetStrategy {
     }
 }
 
-/// Fan out to every host in an inventory file, persisting each result.
-/// T18 wires the surface; full fan-out integration (real `HostScanner`,
-/// per-host retries) is T31's job — see the `TODO(T31)` callsite in
-/// `application::fanout::HostScanner`.
-fn run_remote_fanout(args: &ScanArgs, _inventory_path: &Path) -> ExitCode {
-    warn!(
-        "remote inventory fan-out is structurally wired but not yet integrated with the T16 \
-         orchestrator; run a single host with --target, or wait for T31."
-    );
-    info!(
-        include_udp = args.include_udp,
-        include_loopback = args.include_loopback,
-        skip_signature = args.skip_signature,
-        "scan options acknowledged (no remote hosts were contacted)"
-    );
-    ExitCode::Clean
+/// Fans out to every host in `inventory_path`, persisting each result as
+/// it completes and printing one summary line per host.
+async fn run_remote_fanout(
+    args: &ScanArgs,
+    inventory_path: &Path,
+    resolved: &ResolvedConfig,
+) -> Result<ExitCode> {
+    let contents = match std::fs::read_to_string(inventory_path) {
+        Ok(contents) => contents,
+        Err(e) => {
+            eprintln!(
+                "error: reading inventory file {}: {e}",
+                inventory_path.display()
+            );
+            return Ok(ExitCode::ConfigOrArgError);
+        }
+    };
+    let hosts = match parse_inventory(&contents) {
+        Ok(hosts) => hosts,
+        Err(e) => {
+            eprintln!(
+                "error: invalid inventory file {}: {e}",
+                inventory_path.display()
+            );
+            return Ok(ExitCode::ConfigOrArgError);
+        }
+    };
+    if hosts.is_empty() {
+        eprintln!("inventory file {} has no hosts", inventory_path.display());
+        return Ok(ExitCode::Clean);
+    }
+
+    let known_hosts = match load_known_hosts(&resolved.remote.known_hosts) {
+        Ok(known_hosts) => Arc::new(known_hosts),
+        Err(e) => {
+            eprintln!(
+                "error: loading known_hosts {}: {e}",
+                resolved.remote.known_hosts.display()
+            );
+            return Ok(ExitCode::OperationalError);
+        }
+    };
+
+    // `--probe-exclude`/`--probe-timeout`/`--probe-rate` are not wired
+    // into this tier's `ProbeConfig` -- they're a distinct, still-unwired
+    // CLI surface for local active identification against a scan's own
+    // already-discovered endpoints, not remote fleet port-guessing. See
+    // docs/integration-wiring-audit.md.
+    let scanner: Arc<dyn HostScanner> = match SshHostScanner::new(SshHostScannerConfig {
+        known_hosts,
+        accept_new: resolved.remote.accept_new,
+        max_output_bytes: DEFAULT_MAX_OUTPUT_BYTES,
+        probe_config: ProbeConfig::default(),
+    }) {
+        Ok(scanner) => Arc::new(scanner),
+        Err(e) => {
+            eprintln!("error: building remote host scanner: {e}");
+            return Ok(ExitCode::OperationalError);
+        }
+    };
+
+    let store = match build_store(args.store.as_deref(), resolved.store.as_ref()) {
+        Ok(store) => store,
+        Err(e) => {
+            eprintln!("error: {e:?}");
+            return Ok(ExitCode::ConfigOrArgError);
+        }
+    };
+
+    let progress = anne_de_breuil::adapters::progress::new();
+    let results = run_fanout(
+        hosts,
+        resolved.remote.concurrency,
+        resolved.remote.timeout,
+        store,
+        scanner,
+        Arc::clone(&progress),
+    )
+    .await;
+    progress.finish();
+
+    let mut failures = 0usize;
+    for result in &results {
+        match &result.outcome {
+            HostOutcome::Succeeded(scan_id) => {
+                println!(
+                    "host {}: scanned ({:?}); snapshot {scan_id} persisted",
+                    result.host_id, result.strategy_used
+                );
+            }
+            HostOutcome::Failed(err) => {
+                failures += 1;
+                println!(
+                    "host {}: scan failed ({:?}): {err}",
+                    result.host_id, result.strategy_used
+                );
+            }
+            HostOutcome::TimedOut => {
+                failures += 1;
+                println!(
+                    "host {}: scan timed out ({:?})",
+                    result.host_id, result.strategy_used
+                );
+            }
+        }
+    }
+
+    if failures > 0 {
+        Ok(ExitCode::OperationalError)
+    } else {
+        Ok(ExitCode::Clean)
+    }
 }
 
-/// Handle a single `--target` host. Same boundary as `run_remote_fanout`:
-/// there is no real `HostScanner`/`RemoteTransport` wiring yet (T31), so
-/// this warns rather than silently scanning the local machine instead of
-/// the host the operator actually asked for — an earlier version of this
-/// function didn't check `args.target` at all here, which made
-/// `anne scan --target somehost` silently report a clean local scan.
+/// Loads `path` as an OpenSSH `known_hosts` file, or falls back to an
+/// empty book (every host reports `HostKeyStatus::Unknown` until
+/// `--accept-new`/`[remote] accept_new` admits it) when the path simply
+/// doesn't exist — a fresh installation with no `known_hosts` file on disk
+/// yet is the common case, not an error to fail the whole scan over.
+fn load_known_hosts(path: &Path) -> Result<KnownHosts> {
+    if !path.exists() {
+        return Ok(KnownHosts::empty());
+    }
+    KnownHosts::load_file(path).map_err(|e| anyhow!("{e}"))
+}
+
+/// Handle a single `--target` host. `--target` only ever carries a bare
+/// hostname — there is no CLI flag yet for the login user or auth method a
+/// real connection needs, so this stays a deliberate, honest no-op rather
+/// than guessing a user (e.g. `"root"`) or silently scanning the local
+/// machine instead of the host the operator named.
 fn run_remote_single_target(args: &ScanArgs, target: &str) -> ExitCode {
     warn!(
         target,
-        "remote single-target scanning is not yet wired to a real transport (see \
-         HostScanner's TODO(T31)); run without --target to scan this host, or wait for T31."
+        "single-target remote scanning needs a login user and auth method that --target alone \
+         doesn't carry yet -- pass --inventory instead, or wait for a future task to add the \
+         missing flags (see docs/integration-wiring-audit.md); no remote host was contacted"
     );
     info!(
         include_udp = args.include_udp,
@@ -206,17 +399,57 @@ fn run_remote_single_target(args: &ScanArgs, target: &str) -> ExitCode {
     ExitCode::Clean
 }
 
-/// Persist `snapshot` to the configured store. Returns the `ScanId` that
-/// the store assigned (or the existing one, on idempotent re-`put`).
-async fn persist(args: &ScanArgs, snapshot: &ScanSnapshot) -> Result<ScanId, StoreError> {
-    let store: Arc<dyn SnapshotStore> = if let Some(path) = args.store.as_ref() {
-        Arc::new(anne_de_breuil::adapters::snapshot_store::FsSnapshotStore::new(path)?)
-    } else {
-        let path = std::path::PathBuf::from("anne-snapshots");
-        std::fs::create_dir_all(&path).map_err(StoreError::from)?;
-        Arc::new(anne_de_breuil::adapters::snapshot_store::FsSnapshotStore::new(&path)?)
-    };
+/// Builds the configured `SnapshotStore`, in priority order: `--store` (a
+/// bare filesystem directory, the original CLI-only path), then
+/// `--config`'s `[store]` section, then the filesystem default
+/// (`./anne-snapshots`). Mirrors `examples/portal_server.rs`'s own
+/// `build_store` (backend match, `SQLite` behind its own feature gate)
+/// rather than inventing a second store-selection shape for the same
+/// config section.
+fn build_store(
+    cli_store: Option<&Path>,
+    config_store: Option<&StoreConfig>,
+) -> Result<Arc<dyn SnapshotStore>> {
+    if let Some(path) = cli_store {
+        let store = FsSnapshotStore::new(path)
+            .with_context(|| format!("opening store at {}", path.display()))?;
+        return Ok(Arc::new(store));
+    }
 
+    if let Some(config) = config_store {
+        return match config.backend {
+            StoreBackend::FileSystem => {
+                let store = FsSnapshotStore::new(&config.path)
+                    .with_context(|| format!("opening store at {}", config.path.display()))?;
+                Ok(Arc::new(store))
+            }
+            StoreBackend::Sqlite => sqlite_store(&config.path),
+        };
+    }
+
+    let path = PathBuf::from("anne-snapshots");
+    std::fs::create_dir_all(&path)
+        .with_context(|| format!("creating snapshot directory {}", path.display()))?;
+    let store = FsSnapshotStore::new(&path)
+        .with_context(|| format!("opening store at {}", path.display()))?;
+    Ok(Arc::new(store))
+}
+
+// Not `#[cfg(feature = "store-sqlite")]`: that attribute checks *this*
+// crate's own declared features, not a dependency's -- `anne-de-breuil-cli`
+// has no `[features]` table at all. `store-sqlite` is instead an
+// unconditional feature of the `anne-de-breuil` dependency itself (see
+// this crate's `Cargo.toml`), so `SqliteSnapshotStore` is always compiled
+// in and reachable here without any conditional compilation.
+fn sqlite_store(path: &Path) -> Result<Arc<dyn SnapshotStore>> {
+    let store = anne_de_breuil::adapters::snapshot_store::SqliteSnapshotStore::open(path)
+        .with_context(|| format!("opening sqlite store at {}", path.display()))?;
+    Ok(Arc::new(store))
+}
+
+/// Persist `snapshot` to `store`. Returns the `ScanId` that the store
+/// assigned (or the existing one, on idempotent re-`put`).
+async fn persist(store: &dyn SnapshotStore, snapshot: &ScanSnapshot) -> Result<ScanId, StoreError> {
     let key = IdempotencyKey::generate();
     store.put(key, snapshot.clone()).await
 }

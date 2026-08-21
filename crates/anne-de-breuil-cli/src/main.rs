@@ -16,6 +16,11 @@
 //! `anne_de_breuil_cli`) — never actually calling the library's copy from
 //! this binary at all. `#![deny(dead_code_pub_in_binary)]` only inspects
 //! the binary crate root, so it had nothing to say about the duplication.
+//!
+//! `main` checks for a bare `anne --self-hash` invocation *before*
+//! `Cli::parse()` — that mode has no subcommand at all (see
+//! `application::self_hash`'s doc comment), which `Cli`'s required
+//! `#[command(subcommand)]` field can never accept.
 #![deny(dead_code_pub_in_binary)]
 
 use anyhow::Result;
@@ -57,6 +62,14 @@ const fn exit_code_byte(code: ExitCode) -> u8 {
 }
 
 fn main() -> MainResult {
+    let argv: Vec<String> = std::env::args().collect();
+    if anne_de_breuil_cli::application::self_hash::is_self_hash_invocation(&argv) {
+        return MainResult(
+            anne_de_breuil_cli::application::self_hash::run()
+                .map(|()| ExitCode::Clean)
+                .map_err(|e| anyhow::anyhow!("computing --self-hash: {e}")),
+        );
+    }
     MainResult(run_main())
 }
 

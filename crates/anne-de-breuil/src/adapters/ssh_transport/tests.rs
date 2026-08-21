@@ -46,7 +46,7 @@ use tokio::sync::Mutex as AsyncMutex;
 use super::{DEFAULT_MAX_OUTPUT_BYTES, KnownHosts, SshTransport};
 use crate::adapters::inventory::AuthMethod;
 use crate::application::remote::{RemoteCommand, RemoteTransport as _, TransportError};
-use crate::domain::{HostId, ScanId, ScanSnapshot, TargetStrategy};
+use crate::domain::{HostAddress, HostId, Port, ScanId, ScanSnapshot, TargetStrategy};
 
 /// A throwaway, locally-spawned `sshd` bound to `127.0.0.1` on a free port,
 /// with a fresh ed25519 host key and a fresh ed25519 client key authorized
@@ -199,12 +199,22 @@ fn current_user() -> String {
         .expect("USER or LOGNAME must be set to run these fixture tests")
 }
 
-/// A fixture "collector" standing in for the real one T18 will build. Its
-/// `--self-hash` and `--emit-json` behaviour is baked in at write time
+/// A fixture "collector" standing in for the real `anne` binary. Its
+/// `--self-hash` and `scan --emit-json` behaviour is baked in at write time
 /// (not read from the environment/argv at run time) so the SSH-side
 /// plumbing under test -- push, hash compare, exec, JSON decode, cleanup --
-/// is exercised against known-good, known-bad inputs without needing the
-/// real collector binary this task doesn't own.
+/// is exercised against known-good, known-bad inputs without needing a
+/// real build.
+///
+/// Matches `run_and_collect`'s actual two invocations: `<path> --self-hash`
+/// (bare, no subcommand -- the real `anne` binary special-cases this in
+/// `main` before `Cli::parse()` even runs) and `<path> scan --emit-json`
+/// (the real CLI has no top-level `--emit-json` flag, only
+/// `ScanArgs::emit_json` under the `scan` subcommand -- an earlier version
+/// of this fixture matched a bare `--emit-json` in `$1`, which happened to
+/// pass because a hand-rolled shell script doesn't care about subcommand
+/// structure the way the real binary does; T31's end-to-end test against
+/// the real binary is what caught the mismatch).
 fn write_fixture_collector(dir: &Path, self_hash: &str, snapshot: &ScanSnapshot) -> PathBuf {
     let json = serde_json::to_string(snapshot).expect("serialize fixture snapshot");
     let script_path = dir.join("fixture-collector.sh");
@@ -214,7 +224,7 @@ fn write_fixture_collector(dir: &Path, self_hash: &str, snapshot: &ScanSnapshot)
         "#!/bin/sh\n\
          if [ \"$1\" = \"--self-hash\" ]; then\n\
          printf '%s' '{self_hash}'\n\
-         elif [ \"$1\" = \"--emit-json\" ]; then\n\
+         elif [ \"$1 $2\" = \"scan --emit-json\" ]; then\n\
          cat <<'ANNE_FIXTURE_EOF'\n\
          {json}\n\
          ANNE_FIXTURE_EOF\n\
@@ -250,7 +260,7 @@ fn write_slow_fixture_collector(
          sleep {delay_secs}\n\
          if [ \"$1\" = \"--self-hash\" ]; then\n\
          printf '%s' '{self_hash}'\n\
-         elif [ \"$1\" = \"--emit-json\" ]; then\n\
+         elif [ \"$1 $2\" = \"scan --emit-json\" ]; then\n\
          cat <<'ANNE_FIXTURE_EOF'\n\
          {json}\n\
          ANNE_FIXTURE_EOF\n\
@@ -486,4 +496,77 @@ async fn remote_cleanup_guarantee_holds_under_cancellation() {
     );
 
     let _ = std::fs::remove_file(&collector);
+}
+
+/// T31: `SshHostScanner::resolve_strategy` against a real, locally-spawned
+/// sshd, reusing this module's own [`SshdFixture`] rather than a second
+/// harness. `push_exec_collect_remove`'s exact push/hash/exec/decode
+/// mechanics are already exhaustively covered above against fixture
+/// collector scripts (T15); this proves the tier-*decision* half of the
+/// production `HostScanner` against a real SSH session -- a reachable
+/// sshd resolves `Execute`, an address with nothing listening resolves
+/// `Probe`, never a hard error either way.
+#[tokio::test]
+async fn production_host_scanner_resolves_execute_for_a_reachable_host_and_probe_for_an_unreachable_one()
+ {
+    use crate::adapters::remote_scanner::{SshHostScanner, SshHostScannerConfig};
+    use crate::application::fanout::HostScanner as _;
+    use crate::application::identify::ProbeConfig;
+
+    let sshd = SshdFixture::spawn();
+    let scanner = SshHostScanner::new(SshHostScannerConfig {
+        known_hosts: Arc::clone(&sshd.known_hosts),
+        accept_new: false,
+        max_output_bytes: DEFAULT_MAX_OUTPUT_BYTES,
+        probe_config: ProbeConfig::default(),
+    })
+    .expect("build scanner");
+
+    let reachable_host = crate::adapters::inventory::InventoryHost {
+        host_id: HostId::generate(),
+        address: HostAddress::try_from("127.0.0.1".to_owned()).expect("valid address"),
+        port: Port::try_from(sshd.port()).expect("valid port"),
+        user: sshd.user.clone(),
+        auth: sshd.auth(),
+        jump: None,
+        tags: vec![],
+    };
+    assert_eq!(
+        scanner.resolve_strategy(&reachable_host).await,
+        TargetStrategy::Execute
+    );
+
+    // Nothing is listening on this port -- the connect attempt must fail
+    // and resolve_strategy must degrade to Probe, never panic or return a
+    // hard error, matching HostScanner's own documented contract.
+    let unreachable_host = crate::adapters::inventory::InventoryHost {
+        port: Port::try_from(free_local_port()).expect("valid port"),
+        ..reachable_host.clone()
+    };
+    assert_eq!(
+        scanner.resolve_strategy(&unreachable_host).await,
+        TargetStrategy::Probe
+    );
+
+    // `scan`'s Execute path pushes and runs *this test binary* (this
+    // process's own `current_exe()`), which understands neither
+    // `--self-hash` nor `--emit-json` -- proving `scan_execute` surfaces a
+    // real `HostError` from a real failed remote run, rather than the
+    // plumbing silently reporting success. Holds `TMP_ARTIFACT_LOCK` for
+    // the push, same as every other test in this module that lands an
+    // artifact under the shared real `/tmp` -- see that lock's own doc
+    // comment for why skipping it here would race the artifact-count
+    // assertions other tests make.
+    let _lock = TMP_ARTIFACT_LOCK.lock().await;
+    let outcome = scanner
+        .scan(
+            &reachable_host,
+            TargetStrategy::Execute,
+            crate::domain::IdempotencyKey::generate(),
+        )
+        .await;
+    assert!(
+        outcome.is_err(),
+        "the test harness binary is not a valid --self-hash/--emit-json collector"
+    );
 }

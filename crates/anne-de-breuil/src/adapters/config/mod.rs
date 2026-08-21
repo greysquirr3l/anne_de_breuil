@@ -9,12 +9,20 @@
 //! Env overrides use `__` (double underscore) as the section separator —
 //! e.g. `ANNE_REMOTE__CONCURRENCY`, never `ANNE_REMOTE_CONCURRENCY` — so a
 //! single-underscore `ANNE_`-prefixed variable used for something else
-//! entirely (an operational knob like `ANNE_LOG_FORMAT`, a build-time
-//! value) never gets misread as a config path segment and rejected by
-//! `deny_unknown_fields`. A single-underscore separator did exactly that
-//! in practice: `ANNE_CLI_GIT_HASH`, set process-wide by an unrelated
-//! build script, parsed as section `cli` and broke every test that called
-//! `load`.
+//! entirely (an operational knob like `ANNE_LOG_FORMAT`) never gets
+//! misread as a config path segment and rejected by `deny_unknown_fields`.
+//! `__` alone doesn't close every gap, though: *any* `ANNE_`-prefixed
+//! variable that happens to be set, with no `__` in it at all, still lands
+//! as a single unrecognised top-level key and fails the whole load —
+//! `ANNE_LOG_FORMAT` genuinely does this today (T18's finding, still
+//! unfixed — read directly via `std::env::var` in `main.rs`, not renamed
+//! out of the prefix). A build-time git SHA constant used to collide the
+//! same way (`cargo:rustc-env` sets a real process env var for `cargo
+//! test`/`cargo run`, not just a compile-time one — T31 traced this down
+//! empirically after `--config` wiring made `load` actually get called for
+//! the first time); it was renamed outside the `ANNE_` prefix entirely
+//! (`anne-de-breuil-cli/build.rs`'s `ENV_KEY`) since it has no user-facing
+//! reason to live under that prefix at all, unlike `ANNE_LOG_FORMAT`.
 
 mod error;
 mod portal;

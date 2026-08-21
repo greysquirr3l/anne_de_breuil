@@ -8,6 +8,7 @@
 host_id = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 address = "10.0.0.20"
 port = 22
+user = "ops"
 auth = "agent"
 tags = ["web"]
 
@@ -15,4 +16,5 @@ tags = ["web"]
 host_id = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
 address = "db.internal"
 port = 2222
+user = "svc-anne"
 auth = { key_from_keyring = "anne/db" }

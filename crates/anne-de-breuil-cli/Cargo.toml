@@ -15,7 +15,14 @@ name = "anne"
 path = "src/main.rs"
 
 [dependencies]
-anne-de-breuil.workspace = true
+# `ssh` and `store-sqlite` are additive on top of anne-de-breuil's own
+# defaults (windows-collector, linux-collector, report-html) -- without
+# them, the real `anne` binary never compiled `SshTransport`/
+# `SqliteSnapshotStore` in at all, so `--inventory`/`--target` fan-out and
+# a `[store] backend = "Sqlite"` config both silently had nothing behind
+# them outside a `--all-features` test/CI build. See
+# `docs/integration-wiring-audit.md` (T31) for the full finding.
+anne-de-breuil = { workspace = true, features = ["ssh", "store-sqlite"] }
 anyhow.workspace = true
 async-trait.workspace = true
 clap.workspace = true

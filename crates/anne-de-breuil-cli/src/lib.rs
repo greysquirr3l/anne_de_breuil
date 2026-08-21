@@ -10,8 +10,6 @@
 //! child process, for tests that don't specifically need to observe
 //! process-level behavior (exit codes, stdout purity).
 
-#![allow(dead_code)]
-
 pub mod adapters;
 pub mod application;
 pub mod cli;

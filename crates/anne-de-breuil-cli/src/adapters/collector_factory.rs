@@ -265,8 +265,6 @@ impl SignatureVerifier for LocalCollectorSet {
 // crate (because async_trait emits a hidden `+ Send` lifetime bound
 // there) — solved by adding `async_trait` to this crate's dependencies,
 // mirroring the library crate's own usage.
-#[allow(dead_code)]
-const _LIFETIME_NOTE: &str = "see module doc for the async_trait lifetime explanation";
 
 #[cfg(test)]
 mod tests {

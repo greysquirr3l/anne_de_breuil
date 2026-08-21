@@ -269,5 +269,23 @@ impl Drop for RemoteArtifactGuard {
     }
 }
 
+// Every test in this module spawns a real, locally-run OpenSSH `sshd`
+// (`Command::new("/usr/sbin/sshd")`, a hardcoded Unix path) and sets Unix
+// permission bits (`PermissionsExt::set_mode`) on the generated host key --
+// there is no Windows equivalent of either, so the whole module is gated
+// here rather than leaving it to fail to compile on a native `windows-latest`
+// CI run (which builds every workspace test target under `--all-features`
+// before running any of them, so a single Unix-only file with no gate blocks
+// every other crate's tests in the same `cargo test` invocation too).
+//
+// Two stacked `#[cfg]` attributes, not `#[cfg(all(test, unix))]`: clippy's
+// `allow-*-in-tests` config (`clippy.toml`) only recognises code as test
+// code when the declaration bringing it in carries a standalone
+// `#[cfg(test)]` attribute -- `all(test, unix)` isn't pattern-matched the
+// same way, and every `.expect()`/`.unwrap()` this module's fixtures use
+// (this project's established, deliberate style for test-only setup code)
+// would otherwise become a hard `-D warnings` failure under the exact
+// pedantic profile this project's own CI runs.
 #[cfg(test)]
+#[cfg(unix)]
 mod tests;

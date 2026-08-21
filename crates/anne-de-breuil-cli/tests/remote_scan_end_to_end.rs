@@ -25,7 +25,19 @@ mod support;
 // merely because Cargo only ever compiles a `tests/*.rs` binary under the
 // test profile. `tests/support/mod.rs`'s own doc comment documents the
 // same gotcha for the identical reason.
+//
+// `unix` on top of `test`: this fixture spawns a real, locally-run OpenSSH
+// `sshd` (`Command::new("/usr/sbin/sshd")`, a hardcoded Unix path) and sets
+// Unix permission bits (`PermissionsExt::set_mode`) on the generated host
+// key -- there is no Windows equivalent of either. Mirrors the identical
+// gate on `anne-de-breuil`'s own `ssh_transport::tests` module, which this
+// file's own doc comment already says it's a standalone equivalent of.
+//
+// Two stacked `#[cfg]` attributes, not `#[cfg(all(test, unix))]`: per the
+// comment above this module, clippy's `allow-*-in-tests` heuristic only
+// recognises a standalone `#[cfg(test)]` attribute, not `all(test, unix)`.
 #[cfg(test)]
+#[cfg(unix)]
 mod scenario {
     use std::net::TcpListener;
     use std::os::unix::fs::PermissionsExt as _;

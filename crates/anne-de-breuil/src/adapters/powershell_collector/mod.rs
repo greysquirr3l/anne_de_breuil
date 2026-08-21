@@ -44,17 +44,22 @@ const HELPER_SCRIPT: &str = include_str!("../../../assets/collect.ps1");
 /// How the child process is invoked.
 ///
 /// Production code only ever builds [`Backend::PowerShell`]. The
-/// `#[cfg(test)]` [`Backend::Fixed`] variant exists solely so
+/// `#[cfg(all(test, unix))]` [`Backend::Fixed`] variant exists solely so
 /// [`PowerShellCollector::for_test_with_sleep_script`] can prove the
 /// timeout-and-kill mechanism against a real, cross-platform-available
 /// slow process (`sleep`) without requiring `powershell.exe` to exist on
-/// the machine running the test.
+/// the machine running the test -- gated to `unix` too, not just `test`,
+/// because `sleep` as an argv[0] is itself a Unix-only assumption; a
+/// plain `#[cfg(test)]` here left `Fixed` (and everything downstream of
+/// it) compiled-but-never-constructed on a native `windows-latest` test
+/// run, which `-D warnings` (this project's actual CI lint level) turns
+/// into a hard build failure, not just an unused warning.
 enum Backend {
     PowerShell {
         script_path: PathBuf,
         execution_policy_bypass: bool,
     },
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     Fixed {
         program: std::ffi::OsString,
         args: Vec<std::ffi::OsString>,
@@ -97,7 +102,7 @@ impl Backend {
                 }
                 cmd
             }
-            #[cfg(test)]
+            #[cfg(all(test, unix))]
             Self::Fixed { program, args } => {
                 let mut cmd = Command::new(program);
                 cmd.args(args);
@@ -203,7 +208,7 @@ impl PowerShellCollector {
     /// `powershell.exe`, so the timeout-and-kill mechanism can be tested
     /// with a real child process on any Unix host — no PowerShell
     /// required.
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     fn for_test_with_sleep_script(timeout: Duration) -> Self {
         Self {
             backend: Backend::Fixed {
@@ -221,7 +226,7 @@ impl PowerShellCollector {
 
     /// `true` if the most recently spawned child has not yet been
     /// confirmed exited.
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     fn child_still_running(&self) -> bool {
         self.child_running.load(Ordering::SeqCst)
     }
@@ -408,14 +413,14 @@ impl SignatureVerifier for PowerShellCollector {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
-
-    use super::PowerShellCollector;
-    use crate::application::collect::CollectError;
-
     #[tokio::test]
     #[cfg(unix)]
     async fn hung_child_is_killed_at_timeout() {
+        use std::time::Duration;
+
+        use super::PowerShellCollector;
+        use crate::application::collect::CollectError;
+
         let collector = PowerShellCollector::for_test_with_sleep_script(Duration::from_millis(50));
 
         let err = collector.run_script().await.unwrap_err();

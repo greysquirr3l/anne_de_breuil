@@ -269,7 +269,7 @@ impl SignatureVerifier for LocalCollectorSet {
 #[cfg(test)]
 mod tests {
     use anne_de_breuil::application::collect::{
-        EndpointSource as _, FirewallPolicySource as _, SignatureVerifier as _,
+        CollectError, EndpointSource as _, FirewallPolicySource as _, SignatureVerifier as _,
     };
     use anne_de_breuil::domain::ProcessPath;
 
@@ -289,12 +289,25 @@ mod tests {
         // here; the Linux/Windows variants are proven by the cross-target
         // builds (`cargo build --target x86_64-unknown-linux-musl`,
         // `cargo xwin build --target x86_64-pc-windows-msvc`) instead,
-        // since this process can't run those adapters' real syscalls.
+        // since this process can't run those adapters' real syscalls. On a
+        // real ubuntu-latest CI runner, though, this test *does* drive
+        // `LinuxFirewallPolicySource::inbound_rules` for real -- and a CI
+        // sandbox routinely can't open a `NETLINK_NETFILTER` socket at all
+        // (EPERM/EACCES), which `nft_wire`'s own classification correctly
+        // surfaces as `CollectError::PolicyUnavailable`, not a silent empty
+        // `Ok`. That's the deliberate, tested behaviour this port exists to
+        // guarantee (see `linux_collector/firewall.rs`'s own doc comments),
+        // so this test's job is only "no panic and no *surprise* error
+        // variant," not "always succeeds" -- asserting bare `is_ok()` here
+        // was testing the wrong thing.
         let endpoints = collector_set.listening_endpoints().await;
         assert!(endpoints.is_ok());
 
         let rules = collector_set.inbound_rules().await;
-        assert!(rules.is_ok());
+        assert!(
+            matches!(rules, Ok(_) | Err(CollectError::PolicyUnavailable(_))),
+            "inbound_rules() failed with an unexpected error variant: {rules:?}"
+        );
         let profiles = collector_set.profiles().await;
         assert!(profiles.is_ok());
 

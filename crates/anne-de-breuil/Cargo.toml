@@ -33,6 +33,8 @@ rustls.workspace = true
 tokio-rustls.workspace = true
 x509-parser.workspace = true
 sha2.workspace = true
+indicatif.workspace = true
+console.workspace = true
 base64 = { workspace = true, optional = true }
 rusqlite = { workspace = true, optional = true }
 netstat2 = { workspace = true, optional = true }

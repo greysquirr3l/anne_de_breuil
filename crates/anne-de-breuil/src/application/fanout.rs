@@ -153,8 +153,9 @@ pub trait HostScanner: Send + Sync {
 ///
 /// Sync, not `#[async_trait]`: this is UI/telemetry state a caller updates
 /// in passing, not I/O worth making the orchestrator `.await` for. See
-/// [`NullProgressReporter`] for the JSON-mode no-op adapter; a future
-/// terminal adapter implements this same trait against a real spinner.
+/// [`NullProgressReporter`] for the JSON-mode no-op adapter; the terminal
+/// adapter (`adapters::progress::IndicatifProgress`, T19) implements this
+/// same trait against a real spinner.
 pub trait ProgressReporter: Send + Sync {
     /// Called once, right before a host's first scan attempt begins.
     fn host_started(&self, host_id: HostId);
@@ -162,6 +163,16 @@ pub trait ProgressReporter: Send + Sync {
     /// Called once, after a host's outcome (success, failure, or timeout)
     /// is final.
     fn host_finished(&self, host_id: HostId, outcome: &HostOutcome);
+
+    /// Called once the whole fan-out run is over, successfully or not, so
+    /// a terminal adapter can tear down its render loop and leave the
+    /// screen clean.
+    ///
+    /// Default no-op keeps this addition non-breaking for
+    /// [`NullProgressReporter`] and every existing implementor. Must be
+    /// idempotent — a caller that finishes a run and then, on some error
+    /// path, finishes it again should not see a second completion line.
+    fn finish(&self) {}
 }
 
 /// A [`ProgressReporter`] that does nothing.

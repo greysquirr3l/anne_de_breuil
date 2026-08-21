@@ -83,6 +83,8 @@ windows = { version = "0.62.2", features = [
   "Win32_Security_WinTrust",
   "Win32_System_Services",
 ] }
+indicatif = "0.18"
+console = "0.16"
 
 [profile.release]
 lto = true

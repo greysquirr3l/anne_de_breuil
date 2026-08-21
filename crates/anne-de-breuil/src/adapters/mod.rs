@@ -41,11 +41,16 @@
 //! is the tenth: [`crate::application::remote::RemoteTransport`] implemented
 //! over SSH via `russh`/`russh-sftp`, behind the `ssh` feature — opportunistic,
 //! never assumed; a host with no working SSH demotes to `TargetStrategy::Probe`
-//! rather than aborting the run.
+//! rather than aborting the run. [`progress`] is the eleventh:
+//! [`crate::application::fanout::ProgressReporter`] implemented against
+//! `indicatif`/`console` — a spinner per host on a real terminal, silent
+//! everywhere else. Always compiled in, same as `prober`/`inventory`: it has
+//! no platform dependency, just a TTY check.
 
 pub mod config;
 pub mod inventory;
 pub mod prober;
+pub mod progress;
 pub mod snapshot_store;
 pub mod tls_probe;
 

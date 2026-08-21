@@ -147,12 +147,75 @@ mod tests {
         assert_eq!(decoded, INSTRUMENT_SERIF_400.bytes);
     }
 
-    // TODO(T24): once the HTML report renderer emits <style>/@font-face
-    // blocks from these data URIs, add
-    // `every_data_uri_in_rendered_report_decodes_to_woff2`: render a real
-    // report, extract every `data:font/woff2;base64,...` URI from the
-    // output, and assert each one decodes to bytes starting with `wOF2`
-    // (task T22 spec).
+    /// Renders a real report (`adapters::html_report`, T24) and extracts
+    /// every `data:font/woff2;base64,...` URI actually present in the
+    /// output, rather than trusting `data_uri_decodes_back_to_the_source_
+    /// bytes` above (which only proves the constant is well-formed, not
+    /// that the template interpolates it correctly).
+    #[test]
+    fn every_data_uri_in_rendered_report_decodes_to_woff2() {
+        use core::str::FromStr as _;
+
+        use base64::Engine as _;
+
+        use crate::adapters::config::FontsMode;
+        use crate::adapters::html_report;
+        use crate::domain::bind_address::BindAddress;
+        use crate::domain::endpoint::Endpoint;
+        use crate::domain::ids::{HostId, ScanId};
+        use crate::domain::port::Port;
+        use crate::domain::process::ProcessPath;
+        use crate::domain::protocol::Protocol;
+        use crate::domain::publisher::SignatureStatus;
+        use crate::domain::report_model::ReportModel;
+        use crate::domain::snapshot::ScanSnapshot;
+        use crate::domain::target_strategy::TargetStrategy;
+
+        let endpoint = Endpoint::new(
+            Protocol::Tcp,
+            BindAddress::from_str("0.0.0.0").expect("valid ip"),
+            Port::try_from(8443u16).expect("nonzero port"),
+            None,
+            Some(ProcessPath::from_str("/usr/sbin/sshd").expect("non-empty path")),
+            vec![],
+            SignatureStatus::Unknown,
+            None,
+        );
+        let snapshot = ScanSnapshot::new(
+            HostId::generate(),
+            ScanId::generate(),
+            time::OffsetDateTime::UNIX_EPOCH,
+            "test-fixture".to_owned(),
+            vec![endpoint],
+            vec![],
+            vec![],
+            TargetStrategy::LocalOnly,
+        );
+        let model = ReportModel::build(&[snapshot], None, true).expect("model builds");
+        let html = html_report::render(&model, FontsMode::Embed).expect("renders");
+
+        let prefix = "data:font/woff2;base64,";
+        let mut decoded_count = 0usize;
+        let mut rest = html.as_str();
+        while let Some(start) = rest.find(prefix) {
+            let after = rest.get(start + prefix.len()..).unwrap_or_default();
+            let end = after.find('"').unwrap_or(after.len());
+            let encoded = after.get(..end).unwrap_or_default();
+            let decoded = base64::engine::general_purpose::STANDARD
+                .decode(encoded)
+                .expect("data URI payload must be valid base64");
+            assert!(
+                decoded.starts_with(b"wOF2"),
+                "decoded data URI payload does not start with the WOFF2 magic"
+            );
+            decoded_count += 1;
+            rest = after.get(end..).unwrap_or_default();
+        }
+        assert_eq!(
+            decoded_count, 4,
+            "expected all four vendored faces to appear as data URIs in a real render"
+        );
+    }
 
     // `fonts_system_flag_emits_no_base64_or_font_face_block` (task T22
     // spec) now lives in `adapters::html_report::tests` — it needs a real

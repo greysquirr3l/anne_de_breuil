@@ -203,6 +203,80 @@ fn report_format_html_fonts_system_omits_embedded_font_payload() {
 }
 
 #[test]
+fn report_split_writes_one_file_per_host_plus_an_index() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let snapshot = support::sample_snapshot();
+    let path = support::write_snapshot(dir.path(), "snapshot.json", &snapshot);
+    let split_dir = dir.path().join("split-out");
+
+    let output = support::anne_cmd()
+        .arg("report")
+        .arg(&path)
+        .args(["--format", "html"])
+        .args(["--split", split_dir.to_str().expect("utf8 path")])
+        .output()
+        .expect("anne report --split runs");
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        output.stdout.is_empty(),
+        "expected stdout to stay empty when --split is given"
+    );
+
+    let index = std::fs::read_to_string(split_dir.join("index.html")).expect("index.html exists");
+    assert!(index.starts_with("<!doctype html>"));
+
+    let host_file = std::fs::read_dir(&split_dir)
+        .expect("split dir exists")
+        .filter_map(Result::ok)
+        .find(|entry| {
+            entry.file_name().to_string_lossy().starts_with("host-")
+                && entry.file_name().to_string_lossy().ends_with(".html")
+        })
+        .expect("one per-host file exists");
+    let host_doc = std::fs::read_to_string(host_file.path()).expect("host file readable");
+    assert!(host_doc.contains("class=\"host-section\""));
+}
+
+#[test]
+fn report_split_rejects_a_non_html_format() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let snapshot = support::sample_snapshot();
+    let path = support::write_snapshot(dir.path(), "snapshot.json", &snapshot);
+    let split_dir = dir.path().join("split-out");
+
+    let output = support::anne_cmd()
+        .arg("report")
+        .arg(&path)
+        .args(["--format", "json"])
+        .args(["--split", split_dir.to_str().expect("utf8 path")])
+        .output()
+        .expect("anne report --format json --split runs");
+
+    assert_eq!(output.status.code(), Some(2), "expected ConfigOrArgError");
+    assert!(!split_dir.exists(), "must not write anything on rejection");
+}
+
+#[test]
+fn report_split_and_output_are_mutually_exclusive() {
+    let output = support::anne_cmd()
+        .args(["report", "some-target", "--format", "html"])
+        .args(["--output", "out.html"])
+        .args(["--split", "out-dir"])
+        .output()
+        .expect("anne report --output --split runs");
+
+    assert!(
+        !output.status.success(),
+        "clap must reject --output combined with --split"
+    );
+}
+
+#[test]
 fn inventory_validate_accepts_a_well_formed_file() {
     support::anne_cmd()
         .arg("inventory")

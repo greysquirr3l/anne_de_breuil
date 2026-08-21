@@ -64,12 +64,18 @@ pub enum Command {
         #[arg(long, value_enum, default_value_t = ReportFormatArg::Json)]
         format: ReportFormatArg,
         /// Write the rendered report to this path instead of stdout.
-        #[arg(long, value_name = "PATH")]
+        #[arg(long, value_name = "PATH", conflicts_with = "split")]
         output: Option<PathBuf>,
         /// Where the HTML report's fonts come from. Ignored for every
         /// other `--format`.
         #[arg(long, value_enum, default_value_t = FontsModeArg::Embed)]
         fonts: FontsModeArg,
+        /// Emit one HTML file per host plus a lightweight index, instead
+        /// of a single document. Only valid with `--format html`; takes
+        /// the output directory (created if it doesn't exist) in place of
+        /// `--output`.
+        #[arg(long, value_name = "DIR", conflicts_with = "output")]
+        split: Option<PathBuf>,
     },
     /// Validate an inventory file without scanning.
     Inventory {

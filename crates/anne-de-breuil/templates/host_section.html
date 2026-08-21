@@ -1,0 +1,219 @@
+<section class="host-section" id="{{ anchor }}">
+  <h2 title="{{ full_host_id }}"><code>{{ short_id }}</code> <span class="{{ fidelity_class }}">{{ fidelity_label }}</span></h2>
+  <p class="host-meta">
+    {{ endpoint_count }} endpoint(s) &middot; collected {{ collected_at }} &middot; collector {{ collector_version }} &middot; {{ strategy_label }}
+  </p>
+
+{% if !grid_cells.is_empty() %}
+  <div class="port-density" role="presentation" aria-hidden="true">
+{% for cell in grid_cells %}
+    <span class="port-cell {{ cell.reachability_class }}" title="{{ cell.tooltip }}"></span>
+{% endfor %}
+  </div>
+{% endif %}
+
+  <fieldset class="sort-controls">
+    <legend>Sort endpoints by</legend>
+    <input type="radio" name="{{ sort_group }}" value="port" id="{{ sort_group }}-port" checked>
+    <label for="{{ sort_group }}-port">Port</label>
+    <input type="radio" name="{{ sort_group }}" value="exposure" id="{{ sort_group }}-exposure">
+    <label for="{{ sort_group }}-exposure">Exposure</label>
+    <input type="radio" name="{{ sort_group }}" value="reachability" id="{{ sort_group }}-reachability">
+    <label for="{{ sort_group }}-reachability">Reachability</label>
+  </fieldset>
+
+  <table class="endpoints">
+    <thead>
+      <tr>
+        <th>Port</th>
+        <th>Bind address</th>
+        <th>Process</th>
+        <th>Services</th>
+        <th>Signature</th>
+        <th>Exposure</th>
+        <th>Reachability</th>
+        <th>Detail</th>
+      </tr>
+    </thead>
+    <tbody data-sort="port">
+{% for row in by_port %}
+      <tr>
+        <td class="mono">{{ row.protocol }}/{{ row.port }}</td>
+        <td class="mono">{{ row.bind_address }}</td>
+        <td>
+{% match row.process_path %}
+{% when Some with (path) %}<code>{{ path }}</code>
+{% when None %}<span class="muted">&mdash;</span>
+{% endmatch %}
+        </td>
+        <td>
+{% if row.hosted_services.is_empty() %}<span class="muted">&mdash;</span>
+{% else %}{% for svc in row.hosted_services %}{{ svc }}{% if !loop.last %}, {% endif %}{% endfor %}
+{% endif %}
+        </td>
+        <td>{{ row.signature_label }}</td>
+        <td class="{{ row.exposure_class }}">{{ row.exposure_label }}</td>
+        <td class="{{ row.reachability_class }}">{{ row.reachability_label }}</td>
+        <td>
+          <details>
+            <summary>detail</summary>
+            <dl>
+              <dt>Process path</dt>
+              <dd>
+{% match row.process_path %}
+{% when Some with (path) %}<code>{{ path }}</code>
+{% when None %}<span class="muted">unknown</span>
+{% endmatch %}
+              </dd>
+              <dt>Hosted services</dt>
+              <dd>
+{% if row.hosted_services.is_empty() %}<span class="muted">none observed</span>
+{% else %}{% for svc in row.hosted_services %}{{ svc }}{% if !loop.last %}, {% endif %}{% endfor %}
+{% endif %}
+              </dd>
+              <dt>Signature</dt>
+              <dd>{{ row.signature_label }}</dd>
+              <dt>Fidelity</dt>
+              <dd class="{{ fidelity_class }}">{{ fidelity_label }}</dd>
+              <dt>Command line</dt>
+              <dd>
+{% match row.command_line %}
+{% when Some with (cmd) %}<code>{{ cmd }}</code>
+{% when None %}<span class="muted">not observed</span>
+{% endmatch %}
+{% if !row.command_line_redaction_labels.is_empty() %}
+                <ul class="redaction-list">
+{% for label in row.command_line_redaction_labels %}
+                  <li>redacted: {{ label }}</li>
+{% endfor %}
+                </ul>
+{% endif %}
+              </dd>
+            </dl>
+          </details>
+        </td>
+      </tr>
+{% endfor %}
+    </tbody>
+    <tbody data-sort="exposure">
+{% for row in by_exposure %}
+      <tr>
+        <td class="mono">{{ row.protocol }}/{{ row.port }}</td>
+        <td class="mono">{{ row.bind_address }}</td>
+        <td>
+{% match row.process_path %}
+{% when Some with (path) %}<code>{{ path }}</code>
+{% when None %}<span class="muted">&mdash;</span>
+{% endmatch %}
+        </td>
+        <td>
+{% if row.hosted_services.is_empty() %}<span class="muted">&mdash;</span>
+{% else %}{% for svc in row.hosted_services %}{{ svc }}{% if !loop.last %}, {% endif %}{% endfor %}
+{% endif %}
+        </td>
+        <td>{{ row.signature_label }}</td>
+        <td class="{{ row.exposure_class }}">{{ row.exposure_label }}</td>
+        <td class="{{ row.reachability_class }}">{{ row.reachability_label }}</td>
+        <td>
+          <details>
+            <summary>detail</summary>
+            <dl>
+              <dt>Process path</dt>
+              <dd>
+{% match row.process_path %}
+{% when Some with (path) %}<code>{{ path }}</code>
+{% when None %}<span class="muted">unknown</span>
+{% endmatch %}
+              </dd>
+              <dt>Hosted services</dt>
+              <dd>
+{% if row.hosted_services.is_empty() %}<span class="muted">none observed</span>
+{% else %}{% for svc in row.hosted_services %}{{ svc }}{% if !loop.last %}, {% endif %}{% endfor %}
+{% endif %}
+              </dd>
+              <dt>Signature</dt>
+              <dd>{{ row.signature_label }}</dd>
+              <dt>Fidelity</dt>
+              <dd class="{{ fidelity_class }}">{{ fidelity_label }}</dd>
+              <dt>Command line</dt>
+              <dd>
+{% match row.command_line %}
+{% when Some with (cmd) %}<code>{{ cmd }}</code>
+{% when None %}<span class="muted">not observed</span>
+{% endmatch %}
+{% if !row.command_line_redaction_labels.is_empty() %}
+                <ul class="redaction-list">
+{% for label in row.command_line_redaction_labels %}
+                  <li>redacted: {{ label }}</li>
+{% endfor %}
+                </ul>
+{% endif %}
+              </dd>
+            </dl>
+          </details>
+        </td>
+      </tr>
+{% endfor %}
+    </tbody>
+    <tbody data-sort="reachability">
+{% for row in by_reachability %}
+      <tr>
+        <td class="mono">{{ row.protocol }}/{{ row.port }}</td>
+        <td class="mono">{{ row.bind_address }}</td>
+        <td>
+{% match row.process_path %}
+{% when Some with (path) %}<code>{{ path }}</code>
+{% when None %}<span class="muted">&mdash;</span>
+{% endmatch %}
+        </td>
+        <td>
+{% if row.hosted_services.is_empty() %}<span class="muted">&mdash;</span>
+{% else %}{% for svc in row.hosted_services %}{{ svc }}{% if !loop.last %}, {% endif %}{% endfor %}
+{% endif %}
+        </td>
+        <td>{{ row.signature_label }}</td>
+        <td class="{{ row.exposure_class }}">{{ row.exposure_label }}</td>
+        <td class="{{ row.reachability_class }}">{{ row.reachability_label }}</td>
+        <td>
+          <details>
+            <summary>detail</summary>
+            <dl>
+              <dt>Process path</dt>
+              <dd>
+{% match row.process_path %}
+{% when Some with (path) %}<code>{{ path }}</code>
+{% when None %}<span class="muted">unknown</span>
+{% endmatch %}
+              </dd>
+              <dt>Hosted services</dt>
+              <dd>
+{% if row.hosted_services.is_empty() %}<span class="muted">none observed</span>
+{% else %}{% for svc in row.hosted_services %}{{ svc }}{% if !loop.last %}, {% endif %}{% endfor %}
+{% endif %}
+              </dd>
+              <dt>Signature</dt>
+              <dd>{{ row.signature_label }}</dd>
+              <dt>Fidelity</dt>
+              <dd class="{{ fidelity_class }}">{{ fidelity_label }}</dd>
+              <dt>Command line</dt>
+              <dd>
+{% match row.command_line %}
+{% when Some with (cmd) %}<code>{{ cmd }}</code>
+{% when None %}<span class="muted">not observed</span>
+{% endmatch %}
+{% if !row.command_line_redaction_labels.is_empty() %}
+                <ul class="redaction-list">
+{% for label in row.command_line_redaction_labels %}
+                  <li>redacted: {{ label }}</li>
+{% endfor %}
+                </ul>
+{% endif %}
+              </dd>
+            </dl>
+          </details>
+        </td>
+      </tr>
+{% endfor %}
+    </tbody>
+  </table>
+</section>

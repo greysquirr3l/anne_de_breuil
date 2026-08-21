@@ -1,0 +1,92 @@
+<section class="summary hairline">
+  <p>{{ hosts_scanned }} host(s) scanned, {{ endpoints_total }} endpoint(s) observed.</p>
+{% match redaction_enabled %}
+{% when true %}
+  <p class="hairline">Command-line values are redacted where a secret shape was detected.</p>
+{% when false %}
+{% endmatch %}
+
+  <details class="legend-details">
+    <summary>How to read this report</summary>
+    <dl>
+      <dt>Exposure</dt>
+      <dd>
+        <span class="exposure-loopback">loopback</span> ({{ exposure_loopback }}) &middot;
+        <span class="exposure-specific">specific interface</span> ({{ exposure_specific }}) &middot;
+        <span class="exposure-all">all interfaces</span> ({{ exposure_all }})
+      </dd>
+      <dt>Reachability</dt>
+      <dd>
+        <span class="reachability-local-only">local only</span> ({{ reachability_local_only }}) &middot;
+        <span class="reachability-blocked">blocked</span> ({{ reachability_blocked }}) &middot;
+        <span class="reachability-allowed">allowed</span> ({{ reachability_allowed }}) &middot;
+        <span class="reachability-default-action">default action</span> ({{ reachability_default_action }}) &middot;
+        <span class="reachability-indeterminate">indeterminate</span> ({{ reachability_indeterminate }})
+      </dd>
+      <dt>Fidelity</dt>
+      <dd>
+        <span class="fidelity-authoritative">authoritative</span> &mdash; a collector ran on the target;
+        <span class="fidelity-inferred">inferred</span> &mdash; observed from outside, never confirmed by code running on it.
+      </dd>
+      <dt>Unsigned binaries</dt>
+      <dd>{{ unsigned_binaries }}</dd>
+    </dl>
+  </details>
+
+  <nav class="host-nav" aria-label="Hosts in this report">
+    <h2>Hosts</h2>
+    <ul>
+{% for entry in nav_entries %}
+      <li>
+        <a href="{{ entry.target }}"><code>{{ entry.short_id }}</code></a>
+        &mdash; {{ entry.endpoint_count }} endpoint(s),
+        <span class="{{ entry.fidelity_class }}">{{ entry.fidelity_label }}</span>
+      </li>
+{% endfor %}
+    </ul>
+  </nav>
+
+{% if !drift_by_severity.is_empty() %}
+  <section class="drift-summary">
+    <h2>Drift since baseline</h2>
+    <fieldset class="sort-controls">
+      <legend>Sort drift by</legend>
+      <input type="radio" name="drift-sort" value="severity" id="drift-sort-severity" checked>
+      <label for="drift-sort-severity">Severity</label>
+      <input type="radio" name="drift-sort" value="kind" id="drift-sort-kind">
+      <label for="drift-sort-kind">Kind</label>
+    </fieldset>
+    <table class="drift-table">
+      <thead><tr><th>Kind</th><th>Endpoint</th><th>Severity</th></tr></thead>
+      <tbody data-sort="severity">
+{% for row in drift_by_severity %}
+        <tr>
+          <td>{{ row.kind_label }}</td>
+          <td>
+{% match row.endpoint_label %}
+{% when Some with (label) %}<code>{{ label }}</code>
+{% when None %}<span class="muted">&mdash;</span>
+{% endmatch %}
+          </td>
+          <td class="{{ row.severity_class }}">{{ row.severity_label }}</td>
+        </tr>
+{% endfor %}
+      </tbody>
+      <tbody data-sort="kind">
+{% for row in drift_by_kind %}
+        <tr>
+          <td>{{ row.kind_label }}</td>
+          <td>
+{% match row.endpoint_label %}
+{% when Some with (label) %}<code>{{ label }}</code>
+{% when None %}<span class="muted">&mdash;</span>
+{% endmatch %}
+          </td>
+          <td class="{{ row.severity_class }}">{{ row.severity_label }}</td>
+        </tr>
+{% endfor %}
+      </tbody>
+    </table>
+  </section>
+{% endif %}
+</section>

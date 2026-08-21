@@ -39,7 +39,8 @@ pub async fn run(cli: Cli) -> Result<ExitCode> {
             format,
             output,
             fonts,
-        } => application::report::run(target, format, output, fonts).await,
+            split,
+        } => application::report::run(target, format, output, fonts, split).await,
         cli::Command::Inventory { action } => match action {
             cli::InventoryAction::Validate { path } => application::inventory::run_validate(&path),
         },

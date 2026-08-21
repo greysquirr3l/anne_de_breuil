@@ -1,4 +1,4 @@
-//! `anne report` — render a stored snapshot as JSON, CSV, or SARIF.
+//! `anne report` — render a stored snapshot as JSON, CSV, SARIF, or HTML.
 
 use std::io::Write as _;
 use std::path::PathBuf;
@@ -23,18 +23,36 @@ use anne_de_breuil::domain::report_render;
 /// pretty-JSON-to-stdout behavior the CLI has shipped since T18 — nothing
 /// about the default path changes here. `fonts` selects between embedded
 /// vendored WOFF2 faces and a system font stack for `--format html`; every
-/// other format ignores it.
+/// other format ignores it. `split`, also `--format html`-only, writes one
+/// file per host plus an index into the given directory instead of a
+/// single document; `clap`'s `conflicts_with` on both `--output` and
+/// `--split` in `cli.rs` already rejects passing both, so this function
+/// only has to reject `--split` paired with a non-HTML `--format`.
+///
+/// HTML output (with or without `--split`) streams straight to its
+/// destination via [`html_report::write_report_streaming`] /
+/// [`html_report::write_report_split`] rather than going through the
+/// shared `bytes` buffer every other format uses below — see those
+/// functions' doc comments for why holding the whole rendered document in
+/// memory is exactly what this task's streaming requirement exists to
+/// avoid.
 ///
 /// # Errors
 ///
 /// Returns an error if the snapshot can't be loaded, the report model
-/// can't be built, rendering fails, or (for `--output`) the write fails.
+/// can't be built, rendering fails, or the write fails.
 pub async fn run(
     target: String,
     format: ReportFormatArg,
     output: Option<PathBuf>,
     fonts: FontsModeArg,
+    split: Option<PathBuf>,
 ) -> Result<ExitCode> {
+    if split.is_some() && !matches!(format, ReportFormatArg::Html) {
+        eprintln!("--split is only valid with --format html");
+        return Ok(ExitCode::ConfigOrArgError);
+    }
+
     let snapshot = if looks_like_uuid(&target) {
         load_from_store(&target).await?
     } else {
@@ -56,6 +74,10 @@ pub async fn run(
     )
     .map_err(|e| anyhow!("building report model: {e}"))?;
 
+    if matches!(format, ReportFormatArg::Html) {
+        return run_html(&model, FontsMode::from(fonts), output, split);
+    }
+
     let bytes = match ReportFormat::from(format) {
         ReportFormat::Json => report_render::render_json(&model, true).context("render JSON")?,
         ReportFormat::Csv => report_render::render_csv(&model).context("render CSV")?,
@@ -63,9 +85,7 @@ pub async fn run(
             let sarif = report_render::render_sarif(&model);
             serde_json::to_vec_pretty(&sarif).context("serialize SARIF")?
         }
-        ReportFormat::Html => html_report::render(&model, FontsMode::from(fonts))
-            .context("render HTML")?
-            .into_bytes(),
+        ReportFormat::Html => unreachable!("handled by run_html above"),
     };
 
     match output {
@@ -74,6 +94,33 @@ pub async fn run(
         None => std::io::stdout()
             .write_all(&bytes)
             .context("writing report to stdout")?,
+    }
+
+    Ok(ExitCode::Clean)
+}
+
+fn run_html(
+    model: &anne_de_breuil::domain::report_model::ReportModel,
+    fonts_mode: FontsMode,
+    output: Option<PathBuf>,
+    split: Option<PathBuf>,
+) -> Result<ExitCode> {
+    if let Some(dir) = split {
+        html_report::write_report_split(model, fonts_mode, &dir)
+            .with_context(|| format!("writing split HTML report to {}", dir.display()))?;
+        return Ok(ExitCode::Clean);
+    }
+
+    if let Some(path) = output {
+        report_writer::write_atomically_with(&path, |writer| {
+            html_report::write_report_streaming(model, fonts_mode, writer)
+                .map_err(std::io::Error::other)
+        })
+        .with_context(|| format!("writing report to {}", path.display()))?;
+    } else {
+        let mut stdout = std::io::stdout().lock();
+        html_report::write_report_streaming(model, fonts_mode, &mut stdout)
+            .context("writing report to stdout")?;
     }
 
     Ok(ExitCode::Clean)

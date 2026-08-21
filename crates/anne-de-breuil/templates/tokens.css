@@ -127,3 +127,272 @@ a {
 .exposure-all {
   color: var(--exposure-all);
 }
+
+/* Reading-progress bar and section-reveal animations: opt-in only when the
+   visitor hasn't asked for reduced motion. Every rule referencing
+   animation-timeline anywhere in this file lives inside this one query --
+   pinned by the `every_scroll_driven_animation_wrapped_in_reduced_motion_
+   query` test, which parses the real rendered stylesheet rather than
+   trusting this comment. */
+@media (prefers-reduced-motion: no-preference) {
+  .reading-progress {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 4px;
+    width: 100%;
+    background: var(--accent);
+    transform-origin: 0 50%;
+    transform: scaleX(0);
+    animation: reading-progress-grow linear;
+    animation-timeline: scroll(root);
+    z-index: 1;
+  }
+
+  @keyframes reading-progress-grow {
+    from {
+      transform: scaleX(0);
+    }
+    to {
+      transform: scaleX(1);
+    }
+  }
+
+  .host-section {
+    animation: host-reveal linear both;
+    animation-timeline: view();
+    animation-range: entry 0% cover 30%;
+  }
+
+  @keyframes host-reveal {
+    from {
+      opacity: 0;
+      transform: translateY(12px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}
+
+/* Sort-switching, zero JavaScript: a checked radio inside a host section
+   (or the drift summary) hides every other sort order's <tbody> via
+   :has(). Attribute selectors, not per-host ids -- one static rule set
+   here covers every host regardless of how many the report contains,
+   since templates/host_section.html gives each host's radio group a
+   distinct `name` (`sort-0`, `sort-1`, ...) but the same `value`s. */
+.host-section:has(input[name^="sort-"][value="port"]:checked) .endpoints tbody:not([data-sort="port"]) {
+  display: none;
+}
+.host-section:has(input[name^="sort-"][value="exposure"]:checked) .endpoints tbody:not([data-sort="exposure"]) {
+  display: none;
+}
+.host-section:has(input[name^="sort-"][value="reachability"]:checked) .endpoints tbody:not([data-sort="reachability"]) {
+  display: none;
+}
+
+.drift-summary:has(input[name="drift-sort"][value="severity"]:checked) .drift-table tbody:not([data-sort="severity"]) {
+  display: none;
+}
+.drift-summary:has(input[name="drift-sort"][value="kind"]:checked) .drift-table tbody:not([data-sort="kind"]) {
+  display: none;
+}
+
+.sort-controls {
+  border: none;
+  padding: 0;
+  margin: 0 0 8px 0;
+}
+
+.sort-controls legend {
+  padding: 0;
+  color: var(--muted);
+}
+
+.sort-controls label {
+  margin-right: 12px;
+}
+
+/* Port-density grid: a CSS-only hex-cell overview, one cell per endpoint,
+   coloured by reachability -- clip-path for the hex shape, a fixed
+   column count plus :nth-child(odd) + translateY for the honeycomb
+   stagger, no script. Decorative and aria-hidden: it sits beside the
+   accessible <table> that carries the same data, so it never grows an
+   interactive control of its own (see mod.rs's module doc). */
+.port-density {
+  display: grid;
+  grid-template-columns: repeat(32, 14px);
+  gap: 4px;
+  margin: 16px 0;
+}
+
+.port-cell {
+  width: 14px;
+  height: 16px;
+  clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+  background: var(--hairline);
+}
+
+.port-cell:nth-child(odd) {
+  transform: translateY(8px);
+}
+
+.port-cell.reachability-local-only {
+  background: var(--exposure-loopback);
+}
+
+.port-cell.reachability-blocked {
+  background: var(--muted);
+}
+
+.port-cell.reachability-allowed {
+  background: var(--accent);
+}
+
+.port-cell.reachability-default-action {
+  background: var(--exposure-specific);
+}
+
+.port-cell.reachability-indeterminate {
+  background: var(--hairline);
+}
+
+.reachability-local-only {
+  color: var(--exposure-loopback);
+}
+
+.reachability-blocked {
+  color: var(--muted);
+}
+
+.reachability-allowed {
+  color: var(--accent);
+}
+
+.reachability-default-action {
+  color: var(--exposure-specific);
+}
+
+.reachability-indeterminate {
+  color: var(--muted);
+}
+
+.severity-low {
+  color: var(--muted);
+}
+
+.severity-medium {
+  color: var(--exposure-specific);
+}
+
+.severity-high {
+  color: var(--accent);
+}
+
+.severity-critical {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.fidelity-authoritative {
+  color: var(--muted);
+}
+
+.fidelity-inferred {
+  color: var(--exposure-specific);
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.host-section {
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  padding: 16px;
+  margin: 0 0 16px 0;
+}
+
+.host-meta {
+  color: var(--muted);
+}
+
+table.endpoints,
+table.drift-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 8px 0 16px 0;
+}
+
+table.endpoints th,
+table.endpoints td,
+table.drift-table th,
+table.drift-table td {
+  text-align: left;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.host-nav ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.host-nav li {
+  padding: 4px 0;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.redaction-list {
+  margin: 4px 0 0 0;
+  padding-left: 16px;
+}
+
+/* Print: a usable PDF via browser print-to-PDF, since that's how these
+   reports reach clients -- page breaks between host sections, no table
+   row split mid-page, and drill-down forced open (a closed <details>
+   renders none of its content by default, print included, unless
+   overridden). */
+@media print {
+  .reading-progress,
+  .sort-controls,
+  label[for="theme-toggle"],
+  #theme-toggle {
+    display: none;
+  }
+
+  .host-section {
+    break-before: page;
+  }
+
+  .host-section:first-of-type {
+    break-before: auto;
+  }
+
+  table.endpoints tbody[data-sort]:not([data-sort="port"]) {
+    display: none;
+  }
+
+  table.endpoints tr,
+  table.drift-table tr {
+    break-inside: avoid;
+  }
+
+  /* Modern browsers hide a closed <details>'s content via
+     content-visibility on an internal box, not display:none on each
+     child -- overriding that here shows every drill-down expanded on
+     print, matching "opened once and printed cold" rather than requiring
+     the reader to click every row first. Older engines that predate this
+     content-visibility behaviour still print collapsed; there is no
+     zero-JS way to force the `open` attribute on those without a script,
+     which this report deliberately never adds (see mod.rs's module doc). */
+  details:not([open]) {
+    display: block;
+  }
+
+  details:not([open]) > *:not(summary) {
+    content-visibility: visible !important;
+  }
+}

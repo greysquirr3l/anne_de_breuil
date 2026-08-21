@@ -17,7 +17,7 @@
 //! prediction).
 
 use std::fs::OpenOptions;
-use std::io::Write as _;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 /// Writes `bytes` to `path`, replacing any existing file there atomically.
@@ -43,9 +43,31 @@ use std::path::{Path, PathBuf};
 /// file (best-effort — a cleanup failure doesn't shadow the original
 /// error) rather than leaving a stray `.tmp` file behind.
 pub fn write_atomically(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    write_atomically_with(path, |writer| writer.write_all(bytes))
+}
+
+/// Same atomicity contract as [`write_atomically`], but streams through
+/// `write_fn` instead of taking a byte slice already fully in memory.
+///
+/// `write_fn` gets a `&mut dyn Write` over the temp file directly, so a
+/// caller that itself writes incrementally (see
+/// `adapters::html_report::write_report_streaming`) never has to buffer
+/// its whole output into one `Vec<u8>` first just to hand this function
+/// bytes.
+///
+/// # Errors
+///
+/// Returns the underlying [`std::io::Error`] if the temp file can't be
+/// created, `write_fn` fails, or the rename fails. On failure, this
+/// cleans up its own temp file (best-effort) rather than leaving a stray
+/// `.tmp` file behind -- same as [`write_atomically`].
+pub fn write_atomically_with(
+    path: &Path,
+    write_fn: impl FnOnce(&mut dyn Write) -> std::io::Result<()>,
+) -> std::io::Result<()> {
     let tmp_path = temp_path_for(path)?;
 
-    let write_result = write_new_file(&tmp_path, bytes);
+    let write_result = write_new_file(&tmp_path, write_fn);
     if write_result.is_err() {
         let _ = std::fs::remove_file(&tmp_path);
         return write_result;
@@ -54,7 +76,10 @@ pub fn write_atomically(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     std::fs::rename(&tmp_path, path)
 }
 
-fn write_new_file(tmp_path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+fn write_new_file(
+    tmp_path: &Path,
+    write_fn: impl FnOnce(&mut dyn Write) -> std::io::Result<()>,
+) -> std::io::Result<()> {
     // `create_new` fails outright if the (UUID-suffixed) name is somehow
     // already taken, rather than silently overwriting another writer's
     // in-flight temp file.
@@ -62,7 +87,7 @@ fn write_new_file(tmp_path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         .write(true)
         .create_new(true)
         .open(tmp_path)?;
-    file.write_all(bytes)?;
+    write_fn(&mut file)?;
     file.sync_all()
 }
 
@@ -89,7 +114,7 @@ mod tests {
     use std::path::Path;
     use std::sync::Arc;
 
-    use super::write_atomically;
+    use super::{write_atomically, write_atomically_with};
 
     fn dir_entries(dir: &Path) -> Vec<String> {
         std::fs::read_dir(dir)
@@ -184,5 +209,44 @@ mod tests {
 
         let entries = dir_entries(dir.path());
         assert_eq!(entries, vec!["shared.json".to_owned()]);
+    }
+
+    #[test]
+    fn write_atomically_with_streams_multiple_writes_into_one_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("streamed.html");
+
+        write_atomically_with(&path, |writer| {
+            writer.write_all(b"first-")?;
+            writer.write_all(b"second-")?;
+            writer.write_all(b"third")
+        })
+        .unwrap();
+
+        assert_eq!(std::fs::read(&path).unwrap(), b"first-second-third");
+    }
+
+    #[test]
+    fn write_atomically_with_leaves_no_temp_file_on_write_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("never-created.html");
+
+        let result = write_atomically_with(&path, |_writer| {
+            Err(std::io::Error::other("simulated write failure"))
+        });
+
+        assert!(result.is_err());
+        assert!(!path.exists());
+        assert_eq!(dir_entries(dir.path()), Vec::<String>::new());
+    }
+
+    #[test]
+    fn write_atomically_is_still_backed_by_the_streaming_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("plain.json");
+
+        write_atomically(&path, b"{\"ok\":true}").unwrap();
+
+        assert_eq!(std::fs::read(&path).unwrap(), b"{\"ok\":true}");
     }
 }

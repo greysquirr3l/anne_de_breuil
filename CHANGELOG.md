@@ -12,6 +12,10 @@ Task identifiers (`T01`–`T32`) cross-reference the entries in
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.1.0] — 2026-08-21
+
 ### Added
 
 - **`anne` CLI binary** (`T18`) — the user-facing surface for every prior
@@ -60,8 +64,9 @@ Task identifiers (`T01`–`T32`) cross-reference the entries in
   UUID against the default `anne-snapshots/` store or loads a `.json`
   file directly, builds the `ReportModel` with fail-closed redaction
   (callers must opt in to unredacted command lines), and serialises
-  pretty JSON to stdout. HTML / CSV / SARIF remain T21's remaining
-  scope.
+  pretty JSON to stdout. CSV, SARIF, and HTML rendering followed later
+  in this same release — see the `T21`/`T23`/`T24` entries below; this
+  bullet only covers the JSON path as it stood at `T18`.
   [`crates/anne-de-breuil-cli/src/application/report.rs`](crates/anne-de-breuil-cli/src/application/report.rs).
 
 - **`anne inventory validate <path>`** (`T18`) — parses the TOML file
@@ -74,12 +79,13 @@ Task identifiers (`T01`–`T32`) cross-reference the entries in
   with a `"dev"` fallback for unpacked tarballs.
   [`crates/anne-de-breuil-cli/src/application/version.rs`](crates/anne-de-breuil-cli/src/application/version.rs).
 
-- **Cross-platform local collector selection** (`T31`, stub) —
-  `local_collectors(include_udp)` returns a `(LocalCollectorSet,
-LocalCollectorGuard)` tuple today, with the `LocalCollectorGuard`
-  reserved as a `kill_on_drop` / temp-file handle anchor so the real
-  feature-gated adapters (procfs, netlink, nftables, WMI, PowerShell)
-  can drop in without changing the call site.
+- **Cross-platform local collector selection** (`T31`, stub at the time) —
+  `local_collectors(include_udp)` returned a `(LocalCollectorSet,
+LocalCollectorGuard)` tuple whose four port impls were unconditionally
+  empty, reserved only as the call-site shape the real feature-gated
+  adapters would later drop into. Superseded within this same release —
+  see "Local collector wiring" near the end of this section for the real
+  platform adapters that now back it.
   [`crates/anne-de-breuil-cli/src/adapters/collector_factory.rs`](crates/anne-de-breuil-cli/src/adapters/collector_factory.rs).
 
 - **PowerShell v2 helper shipped and wired** (`T05b`) — the v1 helper
@@ -113,6 +119,247 @@ with_redaction_policy` are the two consumers.
   `assert_cmd`, and `predicates` promoted to workspace-level
   dependencies and inherited by the new `anne-de-breuil-cli` crate.
 
+- **`anne report --format csv|sarif`** (`T21`) — `domain/report_render.rs`
+  (new, pure, zero I/O) turns a `ReportModel` into JSON, CSV, or SARIF.
+  CSV is a flattened `(host, endpoint)` row per endpoint
+  (`host_id,protocol,bind_address,port,process_path,hosted_services,
+signature_status,exposure,reachability`), always with a fixed header
+  row even when a model has zero endpoints across every host (a quiet
+  host is an ordinary case, not an edge case — the header regression
+  is covered by `csv_header_is_present_even_with_zero_endpoints`). SARIF
+  turns each `DriftEntryView` into one `result`, validated in tests
+  against a vendored SARIF 2.1.0 JSON Schema
+  (`crates/anne-de-breuil/fixtures/sarif-schema-2.1.0.json`), with
+  `logicalLocations` naming a network endpoint (`host:{uuid}/TCP:0.0.0.0:8443`)
+  rather than forcing a file-shaped `physicalLocation` URI onto data
+  that isn't a file. `adapters/report_writer.rs`'s `write_atomically`
+  gives `anne report --output <path>` collision-safe atomic writes
+  (a UUID-suffixed temp file plus `create_new(true)`, verified by a
+  real 8-thread concurrent-writer test).
+  [`crates/anne-de-breuil/src/domain/report_render.rs`](crates/anne-de-breuil/src/domain/report_render.rs),
+  [`crates/anne-de-breuil/src/adapters/report_writer.rs`](crates/anne-de-breuil/src/adapters/report_writer.rs).
+
+- **Self-contained HTML theming contract** (`T23`) — `domain/contrast.rs`
+  computes real WCAG contrast ratios for every token-system colour pair
+  against `--paper` (all clear 4.5:1 AA on the light theme; the dark-theme
+  gap is documented, not silently fixed, and later flagged again by
+  `T24`). `templates/tokens.css` carries the `:root` token block, a
+  `prefers-color-scheme: dark` override, and a manual theme toggle;
+  `--fonts embed|system` swaps the four vendored WOFF2 faces for a
+  system font stack with zero `base64,`/`@font-face` bytes in `system`
+  mode. `adapters/html_report.rs` renders through Askama with a strict
+  `default-src 'none'` CSP.
+  [`crates/anne-de-breuil/src/domain/contrast.rs`](crates/anne-de-breuil/src/domain/contrast.rs),
+  [`crates/anne-de-breuil/src/adapters/html_report.rs`](crates/anne-de-breuil/src/adapters/html_report.rs).
+
+- **HTML report shell — navigation, tables, drill-down, `--split`** (`T24`) —
+  `adapters/html_report/` becomes a module directory (`view.rs` presentation
+  mapping, `templates.rs` document shells). Every host section gets a
+  zero-JavaScript sortable endpoint table (port / exposure / reachability,
+  via radio + `:has()` CSS, no client script anywhere in the dependency
+  tree), a fleet-wide drift summary sortable by severity or kind, and a
+  pure-CSS honeycomb port-density grid. `--split <dir>` streams one
+  self-contained `host-<uuid>.html` per host plus an `index.html`, instead
+  of a single monolithic document; a synthetic 200-host fixture stays
+  under 5.6 MB. XSS regression tests (`xss_payloads_never_appear_unescaped`,
+  `xss_svg_context_payload_is_neutralized`) inject real script-tag payloads
+  into process names and confirm entity-escaped output.
+  [`crates/anne-de-breuil/src/adapters/html_report/`](crates/anne-de-breuil/src/adapters/html_report/).
+
+- **Server-rendered editorial SVG diagrams** (`T25`) — five diagram types,
+  all server-rendered inline `<svg>` from real `ReportModel` data, no
+  charting library anywhere in the dependency tree: an exposure map
+  (interface → port → process, degrading to a one-line summary above 60
+  endpoints), a rule-evaluation precedence stack (Block/Allow/Default-action
+  layers), a two-point drift timeline, an exposure-× -signature-confidence
+  trust quadrant, and a per-host firewall-profile bar chart. `domain/svg.rs`
+  snaps every coordinate to a 4px grid at construction (not just in a test)
+  and escapes every interpolated string unconditionally; every diagram
+  always emits `role="img"`/`aria-label`/`<title>`/`<desc>`.
+  [`crates/anne-de-breuil/src/domain/svg.rs`](crates/anne-de-breuil/src/domain/svg.rs),
+  [`crates/anne-de-breuil/src/adapters/html_report/diagrams/`](crates/anne-de-breuil/src/adapters/html_report/diagrams/).
+
+- **Annotation callouts and executive-summary prose** (`T26`) — every
+  render generates a plain-prose executive summary (`"Scanned N hosts and
+  found N endpoints exposed on all interfaces, N unsigned binaries, and N
+  drift entries since the baseline."`, or `"...No findings."` for a clean
+  fleet) and, when a real finding qualifies, at most one fleet-wide margin
+  callout naming the single highest-priority issue (worst `DriftEntryView`
+  by severity, or the most-exposed unsigned all-interfaces listener),
+  never hand-written and never an empty shell on a clean report.
+  `domain::annotations::select_annotation` picks deterministically between
+  exactly the two candidate types genuinely backed by real data in
+  `ReportModel` today — a third "well-known-port mismatch" candidate was
+  deliberately omitted rather than built as an unfounded heuristic (see
+  the module's own "Two candidate types, not three" doc note).
+  [`crates/anne-de-breuil/src/domain/annotations.rs`](crates/anne-de-breuil/src/domain/annotations.rs).
+
+- **Optional `axum` + `htmx` portal for fleet browsing** (`T27`) —
+  behind the `portal` feature, six bearer-token-authenticated routes
+  (fleet index, host detail, host detail fragment, scan detail, snapshot
+  download, drift view) reusing the same `ReportModel`/Askama rendering
+  the standalone HTML report already built. `application::portal`'s
+  `AuthorizingRepository` checks `host_scopes.contains(&host)` before
+  every read and post-filters `get_for_host` on `snapshot.host_id == host`
+  so a token scoped to host A can never see host B's data even via a
+  mismatched scan id. Rate limiting (`adapters::portal::rate_limit`,
+  fixed-window per token/IP) and security headers (CSP, HSTS gated on
+  `X-Forwarded-Proto: https`, `X-Frame-Options: DENY`,
+  `X-Content-Type-Options: nosniff`) are both wired as outermost
+  `Router` layers, verified against a real running server with `curl`
+  (401 with no token, 403 for an out-of-scope host, 404 for a
+  cross-tenant scan id, 429 on a real rate-limit budget of 1). `htmx`
+  2.0.4 is vendored (`assets/vendor/htmx.min.js`), not CDN-fetched.
+  Ships as `examples/portal_server.rs` only — no `anne portal` CLI
+  subcommand exists (confirmed against `Command`'s variant list in
+  `crates/anne-de-breuil-cli/src/cli.rs`: `Scan`, `Diff`, `Report`,
+  `Inventory`, `Version` — no `Portal`).
+  [`crates/anne-de-breuil/src/adapters/portal/`](crates/anne-de-breuil/src/adapters/portal/),
+  [`crates/anne-de-breuil/examples/portal_server.rs`](crates/anne-de-breuil/examples/portal_server.rs).
+
+- **`docs/security-audit.md`** (`T28`) — a full OWASP Top 10:2025 and
+  OWASP API Security Top 10:2023 pass (the latter scoped to the `portal`
+  feature's routes), every item a concrete finding tied to a real file
+  and line or an explicit Not Applicable backed by the grep/read that
+  established it. Two real findings, both fixed: CI jobs in
+  `.github/workflows/ci.yml` had no least-privilege `permissions:` block
+  (added a top-level `contents: read`), and remote-artifact cleanup under
+  task cancellation (`JoinHandle::abort()` mid-`exec()`, as distinct from
+  an ordinary `Drop`) had no direct test coverage. Everything else audited
+  came back clean and re-verified rather than assumed: parameterised SQL
+  everywhere, no credential ever reaches a `tracing` log line (the
+  library crate has no `tracing` dependency at all), constant-time portal
+  token comparison, POSIX-quote-escaped SSH exec arguments, Askama
+  auto-escaping confirmed against real rendered output.
+  [`docs/security-audit.md`](docs/security-audit.md).
+
+- **Static builds, Authenticode signing, SBOM, and release automation**
+  (`T29`) — `.github/workflows/release.yml`, triggered by
+  `workflow_run` off a new `.github/workflows/auto-tag.yml` (a tag pushed
+  with the default `GITHUB_TOKEN` never fires another workflow's
+  `on: push: tags`, so `release.yml` reacts to the tagging workflow
+  finishing instead). Eight jobs build musl x86_64/aarch64 (native,
+  `ldd`-verified static), MSVC x86_64/aarch64 (cross-compiled via
+  `cargo xwin` on `ubuntu-latest`, `xtask verify-static` gate against
+  `llvm-objdump -p` finding zero dynamic `VCRUNTIME`/`MSVCP` imports),
+  a real `windows-latest` smoke test of the cross-built exe, conditional
+  Authenticode signing via `osslsigncode` (skipped with a clear
+  `::notice::` when no signing certificate secret is configured — true
+  for this repository today, so release binaries ship unsigned), a
+  CycloneDX SBOM via `syft`, and `SHA256SUMS.txt` checksums computed
+  after signing so the published hash matches the bytes actually shipped.
+  `xtask/src/checksum.rs` and `xtask/src/verify_static.rs` are new.
+  A genuine pre-existing compile bug was found and fixed by actually
+  running the musl cross-build for the first time:
+  `LinuxProcessResolver::new()`'s `const fn` called the non-`const`
+  `RedactionPolicy::default()`, invisible until this task compiled that
+  `#[cfg(target_os = "linux")]`-gated file on a non-Linux dev machine for
+  the first time — fixed with a hand-written `const fn RedactionPolicy::none()`.
+  [`.github/workflows/release.yml`](.github/workflows/release.yml),
+  [`.github/workflows/auto-tag.yml`](.github/workflows/auto-tag.yml),
+  [`xtask/src/checksum.rs`](xtask/src/checksum.rs),
+  [`xtask/src/verify_static.rs`](xtask/src/verify_static.rs).
+
+- **`docs/dev/security-hardening-review.md`** (`T30`) — a shorter,
+  cross-referencing follow-up to `T28`'s full audit, scoped to what
+  `T28` didn't already establish. One real, medium-severity finding
+  fixed: `ProbeExclusions::default()` (`application/identify.rs`)
+  excluded nothing, so the probe engine's operator-configured outbound
+  HTTP/TLS fetches would happily hit `169.254.169.254`/`169.254.170.2`
+  (AWS/Azure/GCP/ECS cloud-metadata addresses) with no flag required to
+  trigger it and none available to prevent it — a real SSRF pivot for
+  exfiltrating an instance's managed-identity credentials. Fixed by
+  folding both addresses into every construction path unconditionally,
+  with no override escape hatch. Rate limiting, security headers, and
+  the absence of any upload/ingestion endpoint were re-verified against
+  the real assembled portal router (not just isolated middleware tests)
+  and against a real running server with `curl`.
+  [`crates/anne-de-breuil/src/application/identify.rs`](crates/anne-de-breuil/src/application/identify.rs),
+  [`docs/dev/security-hardening-review.md`](docs/dev/security-hardening-review.md).
+
+- **The production `HostScanner`, `--self-hash`, and real remote fan-out**
+  (`T31`) — `adapters::remote_scanner::SshHostScanner` (behind `ssh`)
+  is the real implementation of the trait `application::fanout` has
+  driven against a `TODO(T31)` placeholder since `T16`. `resolve_strategy`
+  attempts a bounded 5-second SSH connect; success resolves `Execute`
+  (push this same running `anne` binary to the target, hash it, run it
+  with `--self-hash` then `--emit-json`, verify the echoed hash matches
+  before trusting any output); any failure resolves `Probe` (a genuinely
+  new 23-port well-known-port sweep gated on a real TCP connect before
+  running `HttpProber`/`TlsProber`), never a hard error. `anne --self-hash`
+  is a bare, subcommand-less invocation detected before `Cli::parse()`
+  runs at all (`application::self_hash::is_self_hash_invocation`), backed
+  by a SHA-256 implementation shared between this mode and
+  `SshHostScanner` (`adapters::binary_hash`). `anne scan --inventory
+<path> --config <path>` now does a real fan-out: parses the inventory,
+  builds `KnownHosts`, constructs `SshHostScanner`, and calls the real
+  `run_fanout` against a real `SnapshotStore`, printing a per-host summary
+  and persisting every result. `InventoryHost` gained a required `user`
+  field (`SshTransport::connect` needs a login user, and nothing before
+  this task ever opened a real connection from inventory data).
+  `anne-de-breuil-cli`'s own `ssh`/`store-sqlite` features were never
+  actually enabled on its `anne-de-breuil` dependency before this task —
+  every prior release build, including every artifact `release.yml`
+  produces, shipped with zero SSH capability and zero SQLite support
+  until this fix.
+  [`crates/anne-de-breuil/src/adapters/remote_scanner/`](crates/anne-de-breuil/src/adapters/remote_scanner/),
+  [`crates/anne-de-breuil/src/adapters/binary_hash.rs`](crates/anne-de-breuil/src/adapters/binary_hash.rs),
+  [`crates/anne-de-breuil-cli/src/application/scan.rs`](crates/anne-de-breuil-cli/src/application/scan.rs),
+  [`docs/dev/integration-wiring-audit.md`](docs/dev/integration-wiring-audit.md).
+
+- **Stub and placeholder cleanup** (`T32`) — the task's own named
+  placeholders (`FsSnapshotStore::get`/`list`, `SshTransport::push`/
+  `exec`/`remove`, `ReportModel::build`, SARIF result rendering, `xtask
+vendor-fonts`) were all already real and shipped by earlier tasks;
+  the real work was a housekeeping sweep of five stale `// TODO(Txx)`
+  comments and five `#[expect(dead_code, ...)]` annotations whose stated
+  reasons no longer held. Two concrete fixes came out of the sweep: the
+  SVG glyph-subset scan T25 left unbuilt now has a real end-to-end test
+  (`adapters/fonts.rs`), and `PowerShellCollector`'s `SignatureVerifier`
+  now delegates to the same `WinVerifyTrust`-backed
+  `WinTrustSignatureVerifier` the native Win32 adapter (`T06`) uses on
+  Windows, instead of staying `Unknown` forever — a real, safe, in-process
+  delegation, since whichever collector gathered a host's other data, the
+  running `anne` process is the same Windows process either way.
+  `docs/dev/stub-cleanup-audit.md` also records, plainly, the single
+  largest remaining gap at the time: a plain `anne scan` with no
+  `--target`/`--inventory` collected zero endpoints on every real
+  platform, because `collector_factory.rs` never constructed any of the
+  real, fully-built PowerShell/native-Windows/Linux collector adapters —
+  closed by the very next commit, described below.
+  [`crates/anne-de-breuil/src/adapters/powershell_collector/mod.rs`](crates/anne-de-breuil/src/adapters/powershell_collector/mod.rs),
+  [`crates/anne-de-breuil/src/adapters/fonts.rs`](crates/anne-de-breuil/src/adapters/fonts.rs),
+  [`docs/dev/stub-cleanup-audit.md`](docs/dev/stub-cleanup-audit.md).
+
+- **Local collector wiring** — `anne scan`'s default path (no `--target`/
+  `--inventory`) collected zero endpoints on every real platform right up
+  until this fix, despite real, fully-built collector adapters existing
+  for both Windows and Linux — the tool's single most basic invocation
+  simply never called them. `collector_factory.rs`'s `local_collectors`
+  now constructs a real `LinuxCollectors` on Linux, a real
+  `PowerShellCollector` on Windows (falling back to an infallible native
+  `WindowsNativeCollectorSet` if the embedded helper script can't be
+  written to a temp file), and keeps the previous stub's byte-for-byte
+  empty-answer behaviour on every other platform (macOS, this project's
+  own dev machine included). `scan_local` now also calls
+  `inbound_rules()`/`profiles()` and maps them into the snapshot through
+  a new `firewall_mapping` module — `ScanSnapshot::new`'s
+  `firewall_rules`/`profiles` arguments were previously hardcoded
+  `vec![]` on every local scan. Required teaching the domain layer
+  `FromStr` for `Direction`/`RuleAction`/`FirewallProfileKind` and adding
+  `RuleId::synthesize` for adapters (nftables) with no native rule GUID.
+  A real `cargo xwin build` (not just `check`) along the way surfaced a
+  pre-existing bug: `ssh_transport`'s agent auth unconditionally called a
+  Unix-only `russh` method, so the crate had never actually cross-built
+  for Windows with the `ssh` feature enabled — fixed by splitting the
+  agent connection by platform.
+  [`crates/anne-de-breuil-cli/src/adapters/collector_factory.rs`](crates/anne-de-breuil-cli/src/adapters/collector_factory.rs),
+  [`crates/anne-de-breuil-cli/src/application/firewall_mapping.rs`](crates/anne-de-breuil-cli/src/application/firewall_mapping.rs).
+
+- **`LICENSE-MIT` and `LICENSE-APACHE`** — dual MIT/Apache-2.0 licensing
+  at the repository root, matching this project's Rust-ecosystem peers.
+  [`LICENSE-MIT`](LICENSE-MIT), [`LICENSE-APACHE`](LICENSE-APACHE).
+
 ### Changed
 
 - **Module wiring** — `crates/anne-de-breuil-cli/src/adapters/mod.rs`
@@ -131,6 +378,17 @@ with_redaction_policy` are the two consumers.
   policy, `RawProcess.path == None` and `RawProcess.command_line ==
 None` for every process — matching Windows, matching the audit
   guarantee.
+- **`anne report`'s `--format` surface** (`T21`/`T23`) — `--format
+csv|sarif|html` and `--output <path>` were added incrementally across
+  `T21` (CSV/SARIF) and `T23` (HTML); `--format html` is accepted by
+  `clap` from `T21` onward but rejected with `ConfigOrArgError` until
+  `T23` actually wires a renderer for it. `--split <dir>` (`T24`)
+  conflicts with `--output` and is only valid alongside `--format html`.
+- **`docs/security-audit.md`'s OWASP category list** (`T28`) — audited
+  against the real, current `owasp.org/Top10/2025/` release rather than
+  assumed carried-over from the 2021 edition; the 2025 edition folded
+  SSRF into Broken Access Control and renamed/reordered several
+  categories.
 
 ### Removed
 
@@ -158,6 +416,61 @@ script_stack_trace}` envelope to stderr via `Write-Error`, so
   serialized JSON exceeds the cap and exits 1. Closes the
   "parent reads an unexpectedly large file" gap before it ever
   opens.
+- **`render_csv` dropped its header on a zero-endpoint model** (`T21`,
+  post-commit fix) — `csv::Writer`'s automatic header inference derives
+  column names from the first serialised row, so a model with zero
+  endpoints across every host produced a completely empty file, no
+  header at all — an ordinary "quiet host" outcome, not a contrived
+  edge case. Fixed by disabling automatic headers and writing a fixed
+  `CSV_HEADERS` array unconditionally before any data rows.
+  [`crates/anne-de-breuil/src/domain/report_render.rs`](crates/anne-de-breuil/src/domain/report_render.rs).
+- **`ci_workflow_audit.rs` counting its own explanatory comment as a
+  permission grant** (`T29` follow-up) — a regression test counting
+  literal occurrences of `"contents: write"` in `release.yml` also
+  matched the comment lines explaining why only one job holds that
+  permission, so a correctly least-privileged workflow tripped its own
+  test. Fixed by filtering out `#`-prefixed lines before counting.
+- **PowerShell firewall-rule JSON shape mismatch** — `RawRule`'s
+  fields (a single `local_port_spec: Option<String>`, a required flat
+  `policy_store: String`) were written in `T04`, before
+  `assets/collect.ps1` existed. The real script emits `local_ports` as
+  a JSON array and never emits a flat `policy_store` field at all, only
+  `policy_store_source`/`policy_store_source_type` — deserialising
+  `RawRule` directly against real script output failed on the first
+  rule. This went uncaught because
+  `fixtures/powershell/server2019_full_lm.json`, despite its name, was
+  hand-written to match `RawRule`'s own shape rather than derived from
+  real script output; every other payload section already had a
+  translation struct bridging this exact gap (`PsSocketEndpoint`,
+  `PsProcess`, `PsService`) — firewall rules never did. Added
+  `PsFirewallRule`, following that same pattern: joins the `local_ports`
+  array into `RawRule`'s single spec string (`"Any"`/empty collapses to
+  no filter), and falls back `policy_store` through
+  `policy_store_source_type` → `policy_store_source` → `"Local"`. Fixed
+  the fixture to match the real script shape so the test suite actually
+  protects against the regression going forward.
+  [`crates/anne-de-breuil/src/adapters/powershell_collector/payload.rs`](crates/anne-de-breuil/src/adapters/powershell_collector/payload.rs),
+  [`crates/anne-de-breuil/fixtures/powershell/server2019_full_lm.json`](crates/anne-de-breuil/fixtures/powershell/server2019_full_lm.json).
+- **CI least-privilege identity** (`T28`) — `.github/workflows/ci.yml`
+  had no top-level or job-level `permissions:` block on the
+  `build-test-lint`/`cargo-deny` jobs; added a top-level
+  `permissions: contents: read`, inherited by every job without its own
+  override.
+- **`LinuxProcessResolver::new()` const-fn compile error** (`T29`) —
+  called the non-`const` `RedactionPolicy::default()` from a `const fn`
+  constructor, invisible on this project's macOS dev machine because the
+  file is `#[cfg(target_os = "linux")]`-gated and had never actually been
+  compiled here before. Fixed with a hand-written `const fn
+RedactionPolicy::none()`, matching `WindowsProcessResolver::new()`'s
+  existing const-constructor sibling.
+- **`SshTransport`'s agent auth never cross-built for Windows** (local
+  collector wiring follow-up) — `authenticate_via_agent` called
+  `AgentClient::connect_env()` unconditionally, a `#[cfg(unix)]`-only
+  `russh` method; `anne-de-breuil-cli` always enables the `ssh` feature,
+  so this had silently never cross-built for Windows until a real
+  `cargo xwin build` (not just `check`) caught it. Split into
+  `connect_agent()` (platform-gated) plus a platform-independent
+  `offer_agent_identities<S>` generic over the stream type.
 
 ### Security
 
@@ -176,16 +489,46 @@ script_stack_trace}` envelope to stderr via `Write-Error`, so
   call. The PowerShell script records which switches were set in
   the payload's `Metadata` block, so a downstream auditor can prove
   what was and wasn't collected.
+- **Default cloud-metadata SSRF exclusion** (`T30`) —
+  `ProbeExclusions::default()` (`application/identify.rs`) previously
+  excluded nothing, meaning the probe engine's operator-configured
+  outbound HTTP/TLS fetches would issue a real GET to
+  `169.254.169.254`/`169.254.170.2` (AWS/Azure/GCP/ECS instance/task
+  metadata) if either ever appeared as a scan target, with no flag
+  available to prevent it. `ProbeExclusions::new` now unconditionally
+  folds both addresses in alongside whatever the caller supplies, on
+  every construction path, with no override escape hatch.
+  [`crates/anne-de-breuil/src/application/identify.rs`](crates/anne-de-breuil/src/application/identify.rs).
+- **Remote-cleanup guarantee under task cancellation, now tested**
+  (`T28`) — `remote_cleanup_guarantee_holds_under_cancellation` proves
+  `RemoteArtifactGuard`'s `Drop`-spawned cleanup survives the calling
+  task itself being cancelled (`JoinHandle::abort()`) mid-`exec()`
+  against a real, locally-spawned `sshd` — a materially different code
+  path than a guard falling out of scope in otherwise-normal control
+  flow, which the pre-existing tests already covered.
+- **Collector binary integrity check now has a real production caller**
+  (`T31`) — the hash-mismatch-rejects-before-trusting-output mechanism
+  (`push_exec_collect_remove`) existed and was tested against a real
+  `sshd` since `T15`, but had no real collector binary speaking its
+  protocol until `SshHostScanner`'s `Execute` path (`T31`) pushed and
+  ran the actual `anne` binary against itself for the first time.
+- **This documentation pass** — brought `CHANGELOG.md` current through
+  `T32` and the two follow-up fixes, and added the README's "What gets
+  collected" and "Usage examples" sections (evidence-checked against
+  the current collector adapters and CLI surface, not summarised from
+  task descriptions).
 
----
-
-## [0.1.0] — prior development
+## Pre-0.1.0 groundwork
 
 Initial domain model, collectors, snapshot store, drift, SSH transport,
 fan-out orchestrator, report model, and font vendoring — landed as the
-T01–T22 series before the CLI surface existed. See
+T01–T22 series before the CLI surface existed. This section predates the
+`v0.1.0` tag; the `[0.1.0]` version number used to sit on this heading
+before any tag existed, back when it was aspirational placeholder text
+rather than a real release marker — retitled once `v0.1.0` was actually
+cut, so the version number isn't claimed twice. See
 [`PROGRESS.md`](PROGRESS.md) for the per-task index and `git log` for
 the commit-level detail.
 
-[Unreleased]: https://github.com/greysquirr3l/anne_de_breuil/compare/HEAD
-[0.1.0]: https://github.com/greysquirr3l/anne_de_breuil/releases/tag/0.1.0
+[Unreleased]: https://github.com/greysquirr3l/anne_de_breuil/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/greysquirr3l/anne_de_breuil/releases/tag/v0.1.0

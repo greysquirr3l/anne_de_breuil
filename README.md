@@ -24,6 +24,113 @@ explicit engagement. Unauthorised port scanning and remote code execution
 against systems you don't control is illegal in most jurisdictions,
 independent of intent.
 
+## What gets collected
+
+An operator authorising a scan should know exactly what data leaves a
+target host. This section is checked against the real collector code
+(`crates/anne-de-breuil/src/adapters/{windows_collector,linux_collector,
+powershell_collector}/`, `crates/anne-de-breuil/src/application/collect.rs`),
+not summarised from a task description.
+
+### Listening endpoints
+
+Every collector implements the same four narrow ports
+(`EndpointSource`/`ProcessResolver`/`FirewallPolicySource`/
+`SignatureVerifier`, `application/collect.rs`). `EndpointSource` returns,
+per listening TCP or UDP socket: transport protocol, bind address, bound
+port, and the owning process id if the platform reports one. A listening
+socket is never dropped from the collected output because its owning
+process couldn't be resolved — a race where the process exits between
+being observed in the socket table and the follow-up query is recorded as
+"process gone," not silently discarded.
+
+### Owning process
+
+For every endpoint whose owning pid resolves to a live process:
+
+- Process id.
+- Executable path — **opt-in, off by default.** `RedactionPolicy::
+include_executable_path` gates this on both platforms; a collector built
+  with the default policy never reports it.
+- Command line — **opt-in, off by default**, same mechanism
+  (`include_command_line`). See "Redaction" below — even when opted in, a
+  collected command line still passes through unconditional secret
+  redaction before it can reach any report format.
+- Hosted services: machine name and display name for every service the
+  process hosts (Windows service, systemd unit), always collected —
+  service names aren't treated as sensitive the way paths and command
+  lines are.
+- Binary signature status:
+  - **Windows** — real Authenticode verification via `WinVerifyTrust`
+    (`adapters/windows_collector/signatures.rs`'s `WinTrustSignatureVerifier`).
+    Reports `Signed(publisher)`, `Unsigned`, or `Unknown` (signed but the
+    publisher name couldn't be recovered). `PowerShellCollector` delegates
+    to this exact same `WinVerifyTrust` call rather than staying `Unknown`
+    forever or shelling out to `Get-AuthenticodeSignature` a second time —
+    both collection paths report identical signature status on the same
+    host.
+  - **Linux** — always `NotApplicable`
+    (`adapters/linux_collector/signatures.rs`'s `LinuxSignatureVerifier`).
+    There is no Linux Authenticode equivalent implemented yet (package-manager
+    provenance via `dpkg`/`rpm` database reads is a real, explicitly
+    out-of-scope future gap, not something this reports as `Unknown` today).
+
+### Firewall rules and profiles
+
+`FirewallPolicySource` returns the host's inbound rule set and profile
+state:
+
+- Per rule: rule id, display name, direction, action (allow/block),
+  protocol, port filter, program-path scope, service-name scope, enabled
+  state, and policy-store origin (e.g. local, Group Policy, dynamic).
+  - **Windows** — via WMI (`root/standardcimv2`'s `MSFT_NetFirewallRule`
+    and its filter classes) or the PowerShell helper script
+    (`Get-NetFirewallRule` and friends), both reading the *effective*
+    (`ActiveStore`) policy rather than only the local store, so
+    GPO-delivered rules on a domain-joined host are included. A real bug
+    in the PowerShell path was found and fixed after this project's
+    firewall-rule fixture turned out not to match what the script
+    actually emits: the script reports `local_ports` as a JSON array and
+    has no flat `policy_store` field at all, only `policy_store_source`/
+    `policy_store_source_type` — the parser now translates that real
+    shape instead of expecting one that was never produced.
+  - **Linux** — via a raw `NETLINK_NETFILTER` socket query against
+    nftables base chains (`adapters/linux_collector/nft_wire.rs`), never
+    an `nft`/`iptables` subprocess. Chain-level default policy only; a
+    firewall query that finds nothing distinguishes "genuinely no rules"
+    from "no policy source was reachable" (permission denied, netlink
+    unavailable, or a legacy iptables-only ruleset with real content
+    detected via `/proc/net/{ip,ip6}_tables_names`) — these are different
+    findings a report reader needs to tell apart, not collapsed into one.
+- Per profile: name, whether the firewall is enabled, and the default
+  inbound/outbound action for traffic no rule explicitly covers.
+  - **Windows** — Domain/Private/Public, matching the platform's own
+    model.
+  - **Linux** — structurally different, not a re-skin of the Windows
+    model: nftables has no per-profile concept at all. There is exactly
+    one host-wide ruleset, so `profiles()` always returns an empty list —
+    a true "no such concept" on this platform, not a failed query (that
+    distinction is reserved for `inbound_rules`).
+
+### What is not collected
+
+- No packet capture and no inspection of connection payloads — only the
+  fact that a socket is listening, and (with active `--probe` scanning
+  opted in) a bounded set of protocol-identification handshake bytes.
+- No file contents from the scanned host.
+- No credentials beyond what's required to establish the SSH connection
+  itself, and even there, never a password: `AuthMethod`
+  (`adapters/inventory.rs`) has exactly three variants —
+  `Agent`, `KeyFile(PathBuf)`, `KeyFromKeyring(String)` — none carries a
+  `String` a raw secret could occupy. No password auth path exists
+  anywhere in this codebase, by construction, not by convention.
+
+See "Redaction" under "Operational contract" below for what happens to
+the opt-in sensitive fields (command line, executable path, service path,
+disabled firewall rules) once they're collected: redaction is
+unconditional and cannot be disabled from the CLI today, regardless of
+what a collector was told to include.
+
 ## Operational contract
 
 ### Exit codes
@@ -62,6 +169,142 @@ host key is rejected unless the caller explicitly opts into accepting new
 keys; a host key that doesn't match what's on file is always rejected,
 with no override. There is no accept-on-first-use behaviour by default —
 nothing in the current CLI surface exposes a flag to weaken this.
+
+## Usage examples
+
+Every flag below is checked against `anne <subcommand> --help` on the
+current build; the local-scan and diff examples were run for real against
+this checked-out repository.
+
+### Local scan
+
+`--emit-json` is the on-host collector mode: stdout carries exactly one
+`ScanSnapshot` and nothing else, so it's the shape to pipe into `anne
+report` or persist yourself.
+
+```bash
+$ anne scan --emit-json
+{"host_id":"2e96d2b0-...","scan_id":"61303baf-...","collected_at":[2026,233,21,43,53,145566000,0,0,0],"collector_version":"0.1.0","endpoints":[],"firewall_rules":[],"profiles":[],"strategy":"Execute"}
+```
+
+(Zero endpoints above because this was run on macOS, where no collector
+adapter is wired yet — see "What gets collected." The same command on
+Windows or Linux constructs the real platform collector.)
+
+Without `--emit-json`, `anne scan` persists the snapshot to the default
+`./anne-snapshots` store and prints a one-line summary instead:
+
+```bash
+$ anne scan
+scanned host 750671da-8aa1-48f2-a9a9-581e619755c3; snapshot 70eac046-7b13-4184-b166-6b6d81d2a9c0 persisted
+```
+
+### Remote fan-out against an inventory
+
+```bash
+anne scan --inventory hosts.toml --config anne.toml
+```
+
+A minimal inventory file (real field names, from
+[`crates/anne-de-breuil/fixtures/inventory/valid.toml`](crates/anne-de-breuil/fixtures/inventory/valid.toml)):
+
+```toml
+[[host]]
+host_id = "11111111-1111-1111-1111-111111111111"
+address = "10.0.0.10"
+port = 22
+user = "ops"
+auth = "agent"
+tags = ["web", "prod"]
+
+[[host]]
+host_id = "22222222-2222-2222-2222-222222222222"
+address = "db1.internal"
+port = 2222
+user = "svc-anne"
+auth = { key_from_keyring = "anne/db1" }
+```
+
+A minimal `anne.toml` (see
+[`crates/anne-de-breuil/assets/anne.default.toml`](crates/anne-de-breuil/assets/anne.default.toml)
+for the full reference file — `[store]` has no built-in default and must
+always be set explicitly):
+
+```toml
+[remote]
+concurrency = 8
+timeout = "2m"
+accept_new = false
+
+[store]
+backend = "FileSystem"
+path = "./anne-data/snapshots"
+```
+
+### Rendering a report
+
+```bash
+anne report <scan-id-or-path.json> --format json
+anne report <scan-id-or-path.json> --format csv
+anne report <scan-id-or-path.json> --format sarif
+anne report <scan-id-or-path.json> --format html --output report.html
+anne report <scan-id-or-path.json> --format html --split ./report-dir
+```
+
+Real output against a zero-endpoint local snapshot — `--format csv`
+still emits its header row even with no data rows (a fixed regression
+this project's own history caught once already):
+
+```bash
+$ anne report scan.json --format csv
+host_id,protocol,bind_address,port,process_path,hosted_services,signature_status,exposure,reachability
+```
+
+`--split` writes one self-contained file per host plus a lightweight
+index, instead of a single document:
+
+```bash
+$ anne report scan.json --format html --split split-out
+$ ls split-out
+host-2e96d2b0-0ae0-4138-adba-8fb944e541e0.html  index.html
+```
+
+### Comparing two scans
+
+```bash
+$ anne diff scan1.json scan2.json --fail-on-drift low
+[]
+$ echo $?
+0
+```
+
+`--fail-on-drift` (`low`/`medium`/`high`/`critical`, default `high`)
+exits `3` the moment any drift entry meets or exceeds the threshold —
+useful in CI as a gate on unexpected new exposure.
+
+### Running the portal
+
+The `axum`/`htmx` fleet-browsing portal is not a CLI subcommand today —
+`anne <subcommand>` has no `Portal` variant (see `Command` in
+`crates/anne-de-breuil-cli/src/cli.rs`). It ships as a standalone example
+binary behind the `portal` feature:
+
+```bash
+cargo run -p anne-de-breuil --example portal_server --features portal
+```
+
+It reads `anne.toml` (path from the first CLI argument or
+`PORTAL_SERVER_CONFIG`) for `[[portal.token]]` entries and `[store]`, and
+binds `PORTAL_SERVER_ADDR` (default `127.0.0.1:8088`). A token entry
+names an environment variable holding the bearer secret, never the
+secret itself:
+
+```toml
+[[portal.token]]
+id = "team-a"
+secret_env = "ANNE_PORTAL_TOKEN_TEAM_A"
+hosts = ["11111111-1111-1111-1111-111111111111"]
+```
 
 ## Layout
 

@@ -45,12 +45,18 @@
 //! [`crate::application::fanout::ProgressReporter`] implemented against
 //! `indicatif`/`console` — a spinner per host on a real terminal, silent
 //! everywhere else. Always compiled in, same as `prober`/`inventory`: it has
-//! no platform dependency, just a TTY check.
+//! no platform dependency, just a TTY check. [`report_writer`] is the
+//! twelfth: `write_atomically`, the one place a rendered report's bytes
+//! (see [`crate::domain::report_render`]) actually touch disk — a temp
+//! file in the report's own output directory, `fsync`'d, then renamed
+//! over the caller-supplied path. Always compiled in; JSON/CSV/SARIF
+//! rendering has no platform dependency either.
 
 pub mod config;
 pub mod inventory;
 pub mod prober;
 pub mod progress;
+pub mod report_writer;
 pub mod snapshot_store;
 pub mod tls_probe;
 

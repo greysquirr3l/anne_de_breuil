@@ -44,6 +44,7 @@ russh = { workspace = true, optional = true }
 russh-sftp = { workspace = true, optional = true }
 sha1 = { workspace = true, optional = true }
 hmac = { workspace = true, optional = true }
+csv.workspace = true
 
 # `windows` itself compiles as a plain library on any host, but the current
 # `windows`/`windows-future` release pair has a real upstream bug that only
@@ -79,7 +80,13 @@ keyring = { workspace = true, features = ["apple-native"], optional = true }
 [dev-dependencies]
 proptest.workspace = true
 tempfile.workspace = true
+# SARIF schema validation, `domain::report_render` tests only. The vendored
+# schema (`fixtures/sarif-schema-2.1.0.json`) has no external `$ref`s, so
+# `default-features = false` drops the `reqwest`/`tls-aws-lc-rs` resolver
+# stack entirely -- validation stays fully offline, matching this project's
+# existing pure-Rust-crypto-backend choices for `rustls`/`russh`.
 rcgen = "0.14"
+jsonschema = { version = "0.50.0", default-features = false }
 
 [features]
 default = ["windows-collector", "linux-collector", "report-html"]

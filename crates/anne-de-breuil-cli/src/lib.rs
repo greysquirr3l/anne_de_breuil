@@ -34,7 +34,11 @@ pub async fn run(cli: Cli) -> Result<ExitCode> {
             current,
             fail_on_drift,
         } => application::diff::run(&baseline, &current, fail_on_drift),
-        cli::Command::Report { target } => application::report::run(target).await,
+        cli::Command::Report {
+            target,
+            format,
+            output,
+        } => application::report::run(target, format, output).await,
         cli::Command::Inventory { action } => match action {
             cli::InventoryAction::Validate { path } => application::inventory::run_validate(&path),
         },

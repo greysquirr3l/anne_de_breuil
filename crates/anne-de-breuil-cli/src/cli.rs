@@ -57,8 +57,17 @@ pub enum Command {
         #[arg(long, value_enum, default_value_t = SeverityArg::High)]
         fail_on_drift: SeverityArg,
     },
-    /// Render a stored snapshot as a report (HTML/JSON/CSV/SARIF; T21 wires formats).
-    Report { target: String },
+    /// Render a stored snapshot as a report (JSON/CSV/SARIF; HTML lands in T23).
+    Report {
+        target: String,
+        /// Which machine format to render. `html` is accepted but not yet
+        /// implemented — see T23.
+        #[arg(long, value_enum, default_value_t = ReportFormatArg::Json)]
+        format: ReportFormatArg,
+        /// Write the rendered report to this path instead of stdout.
+        #[arg(long, value_name = "PATH")]
+        output: Option<PathBuf>,
+    },
     /// Validate an inventory file without scanning.
     Inventory {
         #[command(subcommand)]
@@ -155,6 +164,33 @@ pub struct ScanArgs {
     pub config: Option<PathBuf>,
 }
 
+/// `--format` value for `anne report`.
+///
+/// Mirrors `anne_de_breuil::adapters::config::ReportFormat` variant-for-
+/// variant (same pattern as [`PolicyStoreArg`]/[`SeverityArg`] below) —
+/// `Html` is included because a config file can already name it as a
+/// desired output format, but `application::report::run` rejects it with
+/// a clear "not yet implemented" error rather than silently producing
+/// nothing; see that function's doc comment.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum ReportFormatArg {
+    Json,
+    Csv,
+    Sarif,
+    Html,
+}
+
+impl From<ReportFormatArg> for anne_de_breuil::adapters::config::ReportFormat {
+    fn from(value: ReportFormatArg) -> Self {
+        match value {
+            ReportFormatArg::Json => Self::Json,
+            ReportFormatArg::Csv => Self::Csv,
+            ReportFormatArg::Sarif => Self::Sarif,
+            ReportFormatArg::Html => Self::Html,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum PolicyStoreArg {
     Local,
@@ -199,6 +235,25 @@ mod tests {
         assert_eq!(
             anne_de_breuil::domain::Severity::from(SeverityArg::Critical),
             anne_de_breuil::domain::Severity::Critical
+        );
+    }
+
+    #[test]
+    fn report_format_arg_converts_to_config_report_format() {
+        use anne_de_breuil::adapters::config::ReportFormat;
+
+        assert_eq!(
+            ReportFormat::from(ReportFormatArg::Json),
+            ReportFormat::Json
+        );
+        assert_eq!(ReportFormat::from(ReportFormatArg::Csv), ReportFormat::Csv);
+        assert_eq!(
+            ReportFormat::from(ReportFormatArg::Sarif),
+            ReportFormat::Sarif
+        );
+        assert_eq!(
+            ReportFormat::from(ReportFormatArg::Html),
+            ReportFormat::Html
         );
     }
 }

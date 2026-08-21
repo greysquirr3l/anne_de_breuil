@@ -70,6 +70,105 @@ fn report_renders_a_snapshot_file_as_json() {
 }
 
 #[test]
+fn report_format_csv_writes_a_header_row_with_the_host_id() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let snapshot = support::sample_snapshot();
+    let path = support::write_snapshot(dir.path(), "snapshot.json", &snapshot);
+
+    let output = support::anne_cmd()
+        .arg("report")
+        .arg(&path)
+        .args(["--format", "csv"])
+        .output()
+        .expect("anne report --format csv runs");
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.starts_with("host_id,protocol,bind_address,port,"),
+        "unexpected CSV header, got: {stdout}"
+    );
+    assert!(stdout.contains(&snapshot.host_id.to_string()));
+}
+
+#[test]
+fn report_format_sarif_writes_a_valid_sarif_envelope() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let snapshot = support::sample_snapshot();
+    let path = support::write_snapshot(dir.path(), "snapshot.json", &snapshot);
+
+    let output = support::anne_cmd()
+        .arg("report")
+        .arg(&path)
+        .args(["--format", "sarif"])
+        .output()
+        .expect("anne report --format sarif runs");
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("stdout is valid SARIF JSON");
+    assert_eq!(value["version"], "2.1.0");
+    assert_eq!(value["runs"][0]["tool"]["driver"]["name"], "anne-de-breuil");
+}
+
+#[test]
+fn report_output_flag_writes_the_report_to_a_file_instead_of_stdout() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let snapshot = support::sample_snapshot();
+    let path = support::write_snapshot(dir.path(), "snapshot.json", &snapshot);
+    let out_path = dir.path().join("out.json");
+
+    let output = support::anne_cmd()
+        .arg("report")
+        .arg(&path)
+        .args(["--output", out_path.to_str().expect("utf8 path")])
+        .output()
+        .expect("anne report --output runs");
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        output.stdout.is_empty(),
+        "expected stdout to stay empty when --output is given"
+    );
+    let value: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&out_path).expect("output file exists"))
+            .expect("output file is valid JSON");
+    assert!(value.get("hosts").is_some());
+}
+
+#[test]
+fn report_format_html_is_rejected_with_a_config_or_arg_error() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let snapshot = support::sample_snapshot();
+    let path = support::write_snapshot(dir.path(), "snapshot.json", &snapshot);
+
+    let output = support::anne_cmd()
+        .arg("report")
+        .arg(&path)
+        .args(["--format", "html"])
+        .output()
+        .expect("anne report --format html runs");
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        output.stdout.is_empty(),
+        "html isn't implemented yet; must not emit anything on stdout"
+    );
+}
+
+#[test]
 fn inventory_validate_accepts_a_well_formed_file() {
     support::anne_cmd()
         .arg("inventory")

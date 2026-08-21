@@ -1,22 +1,45 @@
-//! `anne report` — render a stored snapshot as JSON (T21 wires HTML/CSV/SARIF).
+//! `anne report` — render a stored snapshot as JSON, CSV, or SARIF.
 
+use std::io::Write as _;
+use std::path::PathBuf;
 use std::str::FromStr;
 
 use anyhow::{Context, Result, anyhow};
 
-use crate::cli::ExitCode;
+use crate::cli::{ExitCode, ReportFormatArg};
+use anne_de_breuil::adapters::config::ReportFormat;
+use anne_de_breuil::adapters::report_writer;
 use anne_de_breuil::application::snapshot_store::SnapshotStore;
 use anne_de_breuil::domain::ScanId;
+use anne_de_breuil::domain::report_render;
 
 /// Render `target` (a `scan-id` UUID, or a path to a `.json` file) as
-/// a `ReportModel` JSON envelope to stdout.
+/// `format`, writing the result to `output` if given or stdout otherwise.
 ///
 /// `anne report <scan-id>` resolves the id against the default
 /// `anne-snapshots/` store; `anne report <path>` loads the file directly.
-/// The full multi-format rendering is T21's scope — this task wires the
-/// JSON path because it's the one format the report model is guaranteed
-/// to support today (see `domain::report_model::ReportModel`).
-pub async fn run(target: String) -> Result<ExitCode> {
+/// With no `--format`/`--output` at all, this is byte-for-byte the same
+/// pretty-JSON-to-stdout behavior the CLI has shipped since T18 — nothing
+/// about the default path changes here.
+///
+/// # Errors
+///
+/// Returns an error if the snapshot can't be loaded, the report model
+/// can't be built, rendering fails, or (for `--output`) the write fails.
+/// `--format html` is a distinct case: it's a valid, parseable value (the
+/// format exists in `anne_de_breuil::adapters::config::ReportFormat` and a
+/// config file can already name it as a desired output), but this crate
+/// has nothing to render it with yet — T23 onward build the HTML report
+/// shell. Rather than silently emit nothing for a byte-identical exit
+/// code 0, that case prints a clear message and returns
+/// [`ExitCode::ConfigOrArgError`], the same "request understood, can't be
+/// serviced" pattern `application::inventory::run_validate` already uses
+/// for a malformed inventory file.
+pub async fn run(
+    target: String,
+    format: ReportFormatArg,
+    output: Option<PathBuf>,
+) -> Result<ExitCode> {
     let snapshot = if looks_like_uuid(&target) {
         load_from_store(&target).await?
     } else {
@@ -38,9 +61,29 @@ pub async fn run(target: String) -> Result<ExitCode> {
     )
     .map_err(|e| anyhow!("building report model: {e}"))?;
 
-    let stdout = std::io::stdout();
-    let mut handle = stdout.lock();
-    serde_json::to_writer_pretty(&mut handle, &model).context("serialize ReportModel to stdout")?;
+    let bytes = match ReportFormat::from(format) {
+        ReportFormat::Json => report_render::render_json(&model, true).context("render JSON")?,
+        ReportFormat::Csv => report_render::render_csv(&model).context("render CSV")?,
+        ReportFormat::Sarif => {
+            let sarif = report_render::render_sarif(&model);
+            serde_json::to_vec_pretty(&sarif).context("serialize SARIF")?
+        }
+        ReportFormat::Html => {
+            eprintln!(
+                "report format html is not implemented yet — the HTML report shell lands in T23"
+            );
+            return Ok(ExitCode::ConfigOrArgError);
+        }
+    };
+
+    match output {
+        Some(path) => report_writer::write_atomically(&path, &bytes)
+            .with_context(|| format!("writing report to {}", path.display()))?,
+        None => std::io::stdout()
+            .write_all(&bytes)
+            .context("writing report to stdout")?,
+    }
+
     Ok(ExitCode::Clean)
 }
 

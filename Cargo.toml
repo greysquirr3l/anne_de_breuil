@@ -85,6 +85,7 @@ windows = { version = "0.62.2", features = [
 ] }
 indicatif = "0.18"
 console = "0.16"
+csv = "1.4.0"
 
 [profile.release]
 lto = true

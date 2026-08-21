@@ -193,10 +193,31 @@ async fn scan_local(args: &ScanArgs, scan_config: &ScanConfig) -> Result<ScanSna
         .map(endpoint_from_collected)
         .collect::<Vec<_>>();
 
-    let raw_rules = collector_set
-        .inbound_rules()
-        .await
-        .map_err(|e: CollectError| anyhow!("inbound_rules failed: {e}"))?;
+    // `PolicyUnavailable` means the platform's own policy source
+    // (nftables netlink on Linux) genuinely couldn't be queried on this
+    // host -- permission denied, netlink unreachable, or a legacy
+    // iptables-only ruleset with nothing for it to find (see
+    // `CollectError::PolicyUnavailable`'s own doc comment). That's a real,
+    // common, non-root-user outcome, not a bug: an unprivileged `anne
+    // scan` on a real Linux host routinely can't open a
+    // `NETLINK_NETFILTER` socket. Degrading to an empty firewall rule set
+    // and logging a warning mirrors the PowerShell path's own established
+    // precedent (`payload::LanguageMode::Constrained` -- "reduced
+    // fidelity, not failure") rather than aborting a scan that could
+    // otherwise report real endpoint/process/signature data. Any other
+    // `CollectError` variant here is a genuine, unexpected failure and
+    // still aborts the scan, same as before.
+    let raw_rules = match collector_set.inbound_rules().await {
+        Ok(rules) => rules,
+        Err(CollectError::PolicyUnavailable(reason)) => {
+            warn!(
+                reason = %reason,
+                "firewall policy source unavailable; reporting endpoints with no firewall rules"
+            );
+            Vec::new()
+        }
+        Err(e) => return Err(anyhow!("inbound_rules failed: {e}")),
+    };
     let firewall_rules =
         firewall_rules_from_raw(raw_rules).context("mapping collected firewall rules")?;
 

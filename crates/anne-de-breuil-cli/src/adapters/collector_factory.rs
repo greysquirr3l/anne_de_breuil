@@ -301,7 +301,10 @@ mod tests {
         // variant," not "always succeeds" -- asserting bare `is_ok()` here
         // was testing the wrong thing.
         let endpoints = collector_set.listening_endpoints().await;
-        assert!(endpoints.is_ok());
+        assert!(
+            endpoints.is_ok(),
+            "listening_endpoints() failed: {endpoints:?}"
+        );
 
         let rules = collector_set.inbound_rules().await;
         assert!(
@@ -309,10 +312,10 @@ mod tests {
             "inbound_rules() failed with an unexpected error variant: {rules:?}"
         );
         let profiles = collector_set.profiles().await;
-        assert!(profiles.is_ok());
+        assert!(profiles.is_ok(), "profiles() failed: {profiles:?}");
 
         let path = ProcessPath::try_from("/usr/bin/true".to_owned()).expect("valid path");
         let signature = collector_set.verify(&path).await;
-        assert!(signature.is_ok());
+        assert!(signature.is_ok(), "verify() failed: {signature:?}");
     }
 }

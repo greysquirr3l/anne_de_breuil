@@ -8,6 +8,7 @@
 pub mod attribution;
 pub mod bind_address;
 pub mod confidence;
+pub mod contrast;
 pub mod drift;
 pub mod endpoint;
 pub mod error;
@@ -41,6 +42,7 @@ pub mod target_strategy;
 pub use attribution::Attribution;
 pub use bind_address::BindAddress;
 pub use confidence::Confidence;
+pub use contrast::contrast_ratio;
 pub use drift::{DriftEntry, DriftKind, DriftReport, EndpointKey, Severity, diff, severity_for};
 pub use endpoint::Endpoint;
 pub use error::DomainError;

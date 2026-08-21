@@ -26,6 +26,7 @@ accept_new = false
 formats = ["Json", "Html"]
 output_dir = "./anne-reports"
 theme = "Auto"
+fonts = "Embed"
 redaction = true
 
 [store]

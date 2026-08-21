@@ -149,7 +149,7 @@ fn report_output_flag_writes_the_report_to_a_file_instead_of_stdout() {
 }
 
 #[test]
-fn report_format_html_is_rejected_with_a_config_or_arg_error() {
+fn report_format_html_renders_a_self_contained_document() {
     let dir = tempfile::tempdir().expect("tempdir");
     let snapshot = support::sample_snapshot();
     let path = support::write_snapshot(dir.path(), "snapshot.json", &snapshot);
@@ -161,11 +161,45 @@ fn report_format_html_is_rejected_with_a_config_or_arg_error() {
         .output()
         .expect("anne report --format html runs");
 
-    assert_eq!(output.status.code(), Some(2));
     assert!(
-        output.stdout.is_empty(),
-        "html isn't implemented yet; must not emit anything on stdout"
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
     );
+    let html = String::from_utf8_lossy(&output.stdout);
+    assert!(html.starts_with("<!doctype html>"));
+    assert!(html.contains("Content-Security-Policy"));
+    assert!(html.contains("--paper: #f5f5f4"));
+    assert!(html.contains("base64,"), "default --fonts is embed");
+    for pattern in ["src=\"http", "href=\"http", "url(http"] {
+        assert!(
+            !html.contains(pattern),
+            "found external reference {pattern}"
+        );
+    }
+}
+
+#[test]
+fn report_format_html_fonts_system_omits_embedded_font_payload() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let snapshot = support::sample_snapshot();
+    let path = support::write_snapshot(dir.path(), "snapshot.json", &snapshot);
+
+    let output = support::anne_cmd()
+        .arg("report")
+        .arg(&path)
+        .args(["--format", "html", "--fonts", "system"])
+        .output()
+        .expect("anne report --format html --fonts system runs");
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let html = String::from_utf8_lossy(&output.stdout);
+    assert!(!html.contains("base64,"));
+    assert!(!html.contains("@font-face"));
 }
 
 #[test]

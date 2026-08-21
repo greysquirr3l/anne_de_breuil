@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:;">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>anne-de-breuil report</title>
+<style>
+{{ tokens_css|safe }}
+</style>
+</head>
+<body>
+<input type="checkbox" id="theme-toggle" aria-label="Force dark theme regardless of system preference">
+<header class="hairline">
+  <h1>anne-de-breuil report</h1>
+  <label for="theme-toggle">Dark theme</label>
+</header>
+<main>
+  <p>{{ hosts_scanned }} host(s) scanned, {{ endpoints_total }} endpoint(s) observed.</p>
+{% match redaction_enabled %}
+{% when true %}
+  <p class="hairline">Command-line values are redacted where a secret shape was detected.</p>
+{% when false %}
+{% endmatch %}
+{% match example_endpoint %}
+{% when Some with (example) %}
+  <p>Example endpoint: <code>{{ example }}</code></p>
+{% when None %}
+{% endmatch %}
+  <p class="legend">
+    <span class="exposure-loopback">loopback</span>
+    <span class="exposure-specific">specific interface</span>
+    <span class="exposure-all">all interfaces</span>
+  </p>
+</main>
+</body>
+</html>

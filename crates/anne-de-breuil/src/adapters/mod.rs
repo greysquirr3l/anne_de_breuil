@@ -50,7 +50,11 @@
 //! (see [`crate::domain::report_render`]) actually touch disk — a temp
 //! file in the report's own output directory, `fsync`'d, then renamed
 //! over the caller-supplied path. Always compiled in; JSON/CSV/SARIF
-//! rendering has no platform dependency either.
+//! rendering has no platform dependency either. [`html_report`] is the
+//! thirteenth: the self-contained HTML5 report shell, Askama templates
+//! over [`crate::domain::report_model::ReportModel`] — behind
+//! `report-html`, same as `fonts`, so a collector-only build carries none
+//! of the template/CSS payload either.
 
 pub mod config;
 pub mod inventory;
@@ -62,6 +66,9 @@ pub mod tls_probe;
 
 #[cfg(feature = "report-html")]
 pub mod fonts;
+
+#[cfg(feature = "report-html")]
+pub mod html_report;
 
 #[cfg(feature = "windows-collector")]
 pub mod powershell_collector;

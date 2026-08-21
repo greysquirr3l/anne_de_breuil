@@ -57,16 +57,19 @@ pub enum Command {
         #[arg(long, value_enum, default_value_t = SeverityArg::High)]
         fail_on_drift: SeverityArg,
     },
-    /// Render a stored snapshot as a report (JSON/CSV/SARIF; HTML lands in T23).
+    /// Render a stored snapshot as a report (JSON/CSV/SARIF/HTML).
     Report {
         target: String,
-        /// Which machine format to render. `html` is accepted but not yet
-        /// implemented — see T23.
+        /// Which machine format to render.
         #[arg(long, value_enum, default_value_t = ReportFormatArg::Json)]
         format: ReportFormatArg,
         /// Write the rendered report to this path instead of stdout.
         #[arg(long, value_name = "PATH")]
         output: Option<PathBuf>,
+        /// Where the HTML report's fonts come from. Ignored for every
+        /// other `--format`.
+        #[arg(long, value_enum, default_value_t = FontsModeArg::Embed)]
+        fonts: FontsModeArg,
     },
     /// Validate an inventory file without scanning.
     Inventory {
@@ -167,11 +170,7 @@ pub struct ScanArgs {
 /// `--format` value for `anne report`.
 ///
 /// Mirrors `anne_de_breuil::adapters::config::ReportFormat` variant-for-
-/// variant (same pattern as [`PolicyStoreArg`]/[`SeverityArg`] below) —
-/// `Html` is included because a config file can already name it as a
-/// desired output format, but `application::report::run` rejects it with
-/// a clear "not yet implemented" error rather than silently producing
-/// nothing; see that function's doc comment.
+/// variant (same pattern as [`PolicyStoreArg`]/[`SeverityArg`] below).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum ReportFormatArg {
     Json,
@@ -187,6 +186,25 @@ impl From<ReportFormatArg> for anne_de_breuil::adapters::config::ReportFormat {
             ReportFormatArg::Csv => Self::Csv,
             ReportFormatArg::Sarif => Self::Sarif,
             ReportFormatArg::Html => Self::Html,
+        }
+    }
+}
+
+/// `--fonts` value for `anne report --format html`.
+///
+/// Mirrors `anne_de_breuil::adapters::config::FontsMode` variant-for-
+/// variant, same pattern as [`ReportFormatArg`] above.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum FontsModeArg {
+    Embed,
+    System,
+}
+
+impl From<FontsModeArg> for anne_de_breuil::adapters::config::FontsMode {
+    fn from(value: FontsModeArg) -> Self {
+        match value {
+            FontsModeArg::Embed => Self::Embed,
+            FontsModeArg::System => Self::System,
         }
     }
 }
@@ -255,5 +273,13 @@ mod tests {
             ReportFormat::from(ReportFormatArg::Html),
             ReportFormat::Html
         );
+    }
+
+    #[test]
+    fn fonts_mode_arg_converts_to_config_fonts_mode() {
+        use anne_de_breuil::adapters::config::FontsMode;
+
+        assert_eq!(FontsMode::from(FontsModeArg::Embed), FontsMode::Embed);
+        assert_eq!(FontsMode::from(FontsModeArg::System), FontsMode::System);
     }
 }

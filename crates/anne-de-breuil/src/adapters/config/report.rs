@@ -26,6 +26,24 @@ pub enum Theme {
     Auto,
 }
 
+/// Where the HTML report's fonts come from.
+///
+/// A peer setting to [`Theme`], not a CLI-only flag — it's exactly the
+/// same shape of decision (how the HTML report renders) and belongs on
+/// the same config surface an operator already uses to pin the theme, so
+/// the CLI's `--fonts` flag maps onto this field the same way `--format`
+/// already maps onto [`ReportFormat`] rather than introducing a second,
+/// structurally different mechanism for a conceptually identical setting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum FontsMode {
+    /// Vendored WOFF2 subsets, embedded as base64 `data:` URIs — fully
+    /// self-contained, larger output.
+    Embed,
+    /// System font stack (`ui-serif`/`ui-sans-serif`/`ui-monospace`) — no
+    /// embedded font bytes, no `@font-face` block at all.
+    System,
+}
+
 /// Report generation settings.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -36,6 +54,8 @@ pub struct ReportConfig {
     pub output_dir: PathBuf,
     /// HTML report colour scheme.
     pub theme: Theme,
+    /// Where the HTML report's fonts come from.
+    pub fonts: FontsMode,
     /// Whether secret-shaped values (tokens, connection strings) are
     /// redacted from report output.
     pub redaction: bool,
@@ -47,6 +67,7 @@ impl Default for ReportConfig {
             formats: vec![ReportFormat::Json, ReportFormat::Html],
             output_dir: PathBuf::from("./anne-reports"),
             theme: Theme::Auto,
+            fonts: FontsMode::Embed,
             redaction: true,
         }
     }
@@ -65,5 +86,10 @@ mod tests {
     fn defaults_emit_json_and_html() {
         let formats = ReportConfig::default().formats;
         assert_eq!(formats, vec![ReportFormat::Json, ReportFormat::Html]);
+    }
+
+    #[test]
+    fn defaults_embed_fonts() {
+        assert_eq!(ReportConfig::default().fonts, FontsMode::Embed);
     }
 }

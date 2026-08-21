@@ -6,8 +6,9 @@ use std::str::FromStr;
 
 use anyhow::{Context, Result, anyhow};
 
-use crate::cli::{ExitCode, ReportFormatArg};
-use anne_de_breuil::adapters::config::ReportFormat;
+use crate::cli::{ExitCode, FontsModeArg, ReportFormatArg};
+use anne_de_breuil::adapters::config::{FontsMode, ReportFormat};
+use anne_de_breuil::adapters::html_report;
 use anne_de_breuil::adapters::report_writer;
 use anne_de_breuil::application::snapshot_store::SnapshotStore;
 use anne_de_breuil::domain::ScanId;
@@ -20,25 +21,19 @@ use anne_de_breuil::domain::report_render;
 /// `anne-snapshots/` store; `anne report <path>` loads the file directly.
 /// With no `--format`/`--output` at all, this is byte-for-byte the same
 /// pretty-JSON-to-stdout behavior the CLI has shipped since T18 — nothing
-/// about the default path changes here.
+/// about the default path changes here. `fonts` selects between embedded
+/// vendored WOFF2 faces and a system font stack for `--format html`; every
+/// other format ignores it.
 ///
 /// # Errors
 ///
 /// Returns an error if the snapshot can't be loaded, the report model
 /// can't be built, rendering fails, or (for `--output`) the write fails.
-/// `--format html` is a distinct case: it's a valid, parseable value (the
-/// format exists in `anne_de_breuil::adapters::config::ReportFormat` and a
-/// config file can already name it as a desired output), but this crate
-/// has nothing to render it with yet — T23 onward build the HTML report
-/// shell. Rather than silently emit nothing for a byte-identical exit
-/// code 0, that case prints a clear message and returns
-/// [`ExitCode::ConfigOrArgError`], the same "request understood, can't be
-/// serviced" pattern `application::inventory::run_validate` already uses
-/// for a malformed inventory file.
 pub async fn run(
     target: String,
     format: ReportFormatArg,
     output: Option<PathBuf>,
+    fonts: FontsModeArg,
 ) -> Result<ExitCode> {
     let snapshot = if looks_like_uuid(&target) {
         load_from_store(&target).await?
@@ -68,12 +63,9 @@ pub async fn run(
             let sarif = report_render::render_sarif(&model);
             serde_json::to_vec_pretty(&sarif).context("serialize SARIF")?
         }
-        ReportFormat::Html => {
-            eprintln!(
-                "report format html is not implemented yet — the HTML report shell lands in T23"
-            );
-            return Ok(ExitCode::ConfigOrArgError);
-        }
+        ReportFormat::Html => html_report::render(&model, FontsMode::from(fonts))
+            .context("render HTML")?
+            .into_bytes(),
     };
 
     match output {

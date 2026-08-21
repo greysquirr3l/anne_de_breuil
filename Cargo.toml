@@ -86,6 +86,12 @@ windows = { version = "0.62.2", features = [
 indicatif = "0.18"
 console = "0.16"
 csv = "1.4.0"
+# Server-rendered HTML report templates -- compiled in at build time (no
+# runtime template loading, no bundler). `default-features` (config,
+# derive, std, urlencode) is exactly what's needed; the `serde_json`
+# feature is left off since nothing here round-trips a template context
+# through JSON.
+askama = "0.16.0"
 
 [profile.release]
 lto = true

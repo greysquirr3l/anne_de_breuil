@@ -29,7 +29,7 @@ use figment::providers::{Env, Format, Serialized, Toml};
 
 pub use error::ConfigError;
 pub use remote::RemoteConfig;
-pub use report::{ReportConfig, ReportFormat, Theme};
+pub use report::{FontsMode, ReportConfig, ReportFormat, Theme};
 pub use scan::ScanConfig;
 pub use store::{StoreBackend, StoreConfig};
 

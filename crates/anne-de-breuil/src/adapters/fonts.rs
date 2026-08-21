@@ -154,10 +154,10 @@ mod tests {
     // output, and assert each one decodes to bytes starting with `wOF2`
     // (task T22 spec).
 
-    // TODO(T23): once `--fonts=system` exists as a CLI/report-config flag,
-    // add `fonts_system_flag_emits_no_base64_or_font_face_block`: render
-    // with that flag and assert the output contains neither `base64,` nor
-    // `@font-face` (task T22 spec).
+    // `fonts_system_flag_emits_no_base64_or_font_face_block` (task T22
+    // spec) now lives in `adapters::html_report::tests` — it needs a real
+    // rendered artifact to inspect, which only exists once that module's
+    // `render()` function does.
 
     // TODO(T25): once the SVG diagram generator and HTML templates exist,
     // add the codepoint-subset scan (`no_glyph_outside_subset_is_emitted_as_text`):

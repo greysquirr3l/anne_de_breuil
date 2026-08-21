@@ -36,6 +36,7 @@ sha2.workspace = true
 indicatif.workspace = true
 console.workspace = true
 base64 = { workspace = true, optional = true }
+askama = { workspace = true, optional = true }
 rusqlite = { workspace = true, optional = true }
 netstat2 = { workspace = true, optional = true }
 sysinfo = { workspace = true, optional = true }
@@ -93,6 +94,6 @@ default = ["windows-collector", "linux-collector", "report-html"]
 windows-collector = ["dep:netstat2", "dep:sysinfo", "dep:wmi", "dep:windows"]
 linux-collector = ["dep:netstat2", "dep:sysinfo", "dep:netlink-sys"]
 ssh = ["dep:russh", "dep:russh-sftp", "dep:sha1", "dep:hmac", "dep:keyring"]
-report-html = ["dep:base64"]
+report-html = ["dep:base64", "dep:askama"]
 store-sqlite = ["dep:rusqlite"]
 portal = []

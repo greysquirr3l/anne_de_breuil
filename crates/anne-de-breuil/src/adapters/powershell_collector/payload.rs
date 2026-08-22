@@ -408,9 +408,17 @@ const fn char_boundary_at_or_after(text: &str, mut index: usize) -> usize {
     index
 }
 
-/// How much raw JSON to show on each side of a depth-truncation marker —
-/// enough to name the field it replaced without dumping the whole payload.
-const TRUNCATION_CONTEXT_RADIUS: usize = 200;
+/// How much raw JSON to show on each side of an error location — enough
+/// to name the field responsible without dumping the whole payload.
+const ERROR_CONTEXT_RADIUS: usize = 200;
+
+/// A window of `text` around byte offset `index`, `ERROR_CONTEXT_RADIUS`
+/// bytes to each side, clamped to valid char boundaries.
+fn context_window(text: &str, index: usize) -> &str {
+    let start = char_boundary_at_or_after(text, index.saturating_sub(ERROR_CONTEXT_RADIUS));
+    let end = char_boundary_at_or_after(text, (index + ERROR_CONTEXT_RADIUS).min(text.len()));
+    &text[start..end]
+}
 
 fn reject_if_depth_truncated(text: &str) -> Result<(), CollectError> {
     let Some(marker) = DEPTH_TRUNCATION_MARKERS
@@ -425,17 +433,24 @@ fn reject_if_depth_truncated(text: &str) -> Result<(), CollectError> {
     // rather than only that depth truncation happened somewhere in a
     // multi-kilobyte payload.
     let marker_index = text.find(marker).unwrap_or(0);
-    let start =
-        char_boundary_at_or_after(text, marker_index.saturating_sub(TRUNCATION_CONTEXT_RADIUS));
-    let end = char_boundary_at_or_after(
-        text,
-        (marker_index + marker.len() + TRUNCATION_CONTEXT_RADIUS).min(text.len()),
-    );
-    let context = &text[start..end];
+    let context = context_window(text, marker_index);
     Err(CollectError::Parse(format!(
         "payload looks truncated by insufficient -Depth (found {marker:?} where structured \
          data was expected); context: {context:?}"
     )))
+}
+
+/// Wraps a `serde_json` deserialization failure with a slice of the raw
+/// payload around it. `collect.ps1` always writes `-Compress`d (single
+/// line) JSON, so `source.column()` (1-indexed) doubles as a byte offset
+/// into `text` -- the same "show real context instead of guessing which
+/// field broke" approach `reject_if_depth_truncated` already uses, now
+/// covering type-mismatch failures too (a `null` where a required
+/// non-optional field expected a string, for example).
+fn describe_json_error(text: &str, source: &serde_json::Error) -> CollectError {
+    let byte_index = source.column().saturating_sub(1);
+    let context = context_window(text, byte_index);
+    CollectError::Parse(format!("{source} near: {context:?}"))
 }
 
 /// Strips a leading UTF-8 byte-order mark, if present.
@@ -478,7 +493,7 @@ pub(super) fn parse_payload(bytes: &[u8]) -> Result<PowerShellPayload, CollectEr
     let text = decode_payload_text(&stripped);
     reject_if_depth_truncated(&text)?;
     let envelope: PsPayload =
-        serde_json::from_str(&text).map_err(|source| CollectError::Parse(source.to_string()))?;
+        serde_json::from_str(&text).map_err(|source| describe_json_error(&text, &source))?;
     if envelope.schema_name != SUPPORTED_SCHEMA_NAME {
         return Err(CollectError::Parse(format!(
             "unsupported schema_name {:?} (expected {:?})",

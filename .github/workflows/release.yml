@@ -174,15 +174,29 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      # `ring`/`blake3` compile a handful of C sources as part of the
-      # build; clang cross-compiles both musl targets from one binary with
-      # no target-specific system cross-toolchain package needed, unlike
-      # gcc. `rust-lld` (bundled with every rustup toolchain) is the
-      # linker for the same reason -- it's architecture-agnostic, so both
-      # x86_64 and aarch64 link the same way without an apt-installed
-      # cross-binutils. Verified locally in T29 against both musl targets.
-      - name: Install clang
-        run: sudo apt-get update && sudo apt-get install -y clang
+      # `ring`/`blake3`/`libsqlite3-sys` (rusqlite's bundled sqlite3.c)
+      # compile a handful of C sources as part of the build. Bare `clang`
+      # (previously used here) cross-compiles for musl using the *host*
+      # runner's glibc headers -- there's no musl sysroot on PATH by
+      # default -- so sqlite3.c's large-file symbols (open64, fstat64,
+      # pread64, ...) compile as real references that simply don't exist
+      # in musl's static libc, a real link failure caught on real CI, not
+      # local dev (ring/blake3 alone never hit this, since neither uses
+      # those symbols). Real musl-gcc cross toolchains (prebuilt by
+      # musl.cc, the same toolchains most of the Rust-on-musl ecosystem
+      # uses to cross-build from an x86_64 Linux host) ship musl's actual
+      # headers, so only the C *compiler* needs to change here --
+      # `rust-lld` stays the Rust *linker*, unchanged from before, since
+      # it links fine once the C objects reference real musl symbols.
+      # Verified in a real ubuntu:latest container against both targets
+      # before landing this.
+      - name: Install musl cross toolchains
+        run: |
+          set -euo pipefail
+          for triple in x86_64-linux-musl aarch64-linux-musl; do
+            curl -fsSL "https://musl.cc/${triple}-cross.tgz" | sudo tar -xz -C /opt
+            echo "/opt/${triple}-cross/bin" >> "$GITHUB_PATH"
+          done
 
       - name: Resolve rust-lld path
         run: |
@@ -191,13 +205,13 @@ jobs:
 
       - name: Build x86_64-unknown-linux-musl
         env:
-          CC_x86_64_unknown_linux_musl: clang
+          CC_x86_64_unknown_linux_musl: x86_64-linux-musl-gcc
           RUSTFLAGS: "-C linker=${{ env.RUST_LLD }} -C linker-flavor=ld.lld"
         run: cargo build --release --target x86_64-unknown-linux-musl -p anne-de-breuil-cli
 
       - name: Build aarch64-unknown-linux-musl
         env:
-          CC_aarch64_unknown_linux_musl: clang
+          CC_aarch64_unknown_linux_musl: aarch64-linux-musl-gcc
           RUSTFLAGS: "-C linker=${{ env.RUST_LLD }} -C linker-flavor=ld.lld"
         run: cargo build --release --target aarch64-unknown-linux-musl -p anne-de-breuil-cli
 

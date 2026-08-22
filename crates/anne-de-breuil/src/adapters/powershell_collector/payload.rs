@@ -401,12 +401,16 @@ const DEPTH_TRUNCATION_MARKERS: [&str; 4] = [
 /// Nearest valid `str` char boundary at or after `index` — a truncation
 /// marker's surrounding bytes can land mid-codepoint if a nearby field
 /// happens to carry non-ASCII text, and slicing on a non-boundary panics.
-fn char_boundary_at_or_after(text: &str, mut index: usize) -> usize {
+const fn char_boundary_at_or_after(text: &str, mut index: usize) -> usize {
     while index < text.len() && !text.is_char_boundary(index) {
         index += 1;
     }
     index
 }
+
+/// How much raw JSON to show on each side of a depth-truncation marker —
+/// enough to name the field it replaced without dumping the whole payload.
+const TRUNCATION_CONTEXT_RADIUS: usize = 200;
 
 fn reject_if_depth_truncated(text: &str) -> Result<(), CollectError> {
     let Some(marker) = DEPTH_TRUNCATION_MARKERS
@@ -420,15 +424,14 @@ fn reject_if_depth_truncated(text: &str) -> Result<(), CollectError> {
     // against) reveals *which* field the helper script left unconverted,
     // rather than only that depth truncation happened somewhere in a
     // multi-kilobyte payload.
-    const CONTEXT_RADIUS: usize = 200;
-    let context = text.find(marker).map(|marker_index| {
-        let start = char_boundary_at_or_after(text, marker_index.saturating_sub(CONTEXT_RADIUS));
-        let end = char_boundary_at_or_after(
-            text,
-            (marker_index + marker.len() + CONTEXT_RADIUS).min(text.len()),
-        );
-        &text[start..end]
-    });
+    let marker_index = text.find(marker).unwrap_or(0);
+    let start =
+        char_boundary_at_or_after(text, marker_index.saturating_sub(TRUNCATION_CONTEXT_RADIUS));
+    let end = char_boundary_at_or_after(
+        text,
+        (marker_index + marker.len() + TRUNCATION_CONTEXT_RADIUS).min(text.len()),
+    );
+    let context = &text[start..end];
     Err(CollectError::Parse(format!(
         "payload looks truncated by insufficient -Depth (found {marker:?} where structured \
          data was expected); context: {context:?}"

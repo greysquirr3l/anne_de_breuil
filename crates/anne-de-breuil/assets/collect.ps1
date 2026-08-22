@@ -610,10 +610,19 @@ try {
                 else {
                     $null
                 }
+                # EnforcementStatus can be multi-valued (one entry per
+                # policy store a domain-joined host enforces the rule
+                # from) even though most of this rule's other fields are
+                # genuinely single-valued -- calling .ToString() directly
+                # on an array yields the literal text "System.Object[]",
+                # not the array's contents, which is exactly the failure
+                # this line used to produce on a real domain-joined
+                # Windows host. Wrapping in @() first and joining handles
+                # both the single- and multi-value case uniformly.
                 enforcement_status = if (
                     $null -ne $firewallRule.EnforcementStatus
                 ) {
-                    $firewallRule.EnforcementStatus.ToString()
+                    (@($firewallRule.EnforcementStatus) | ForEach-Object { $_.ToString() }) -join ','
                 }
                 else {
                     $null

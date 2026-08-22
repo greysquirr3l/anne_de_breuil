@@ -143,3 +143,4 @@ CLAUDE.md
 docs/dev/
 .github/hooks/rtk-rewrite.json
 .github/copilot-instructions.md
+anne-snapshots/

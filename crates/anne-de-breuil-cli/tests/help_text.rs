@@ -8,10 +8,28 @@
 #[cfg(test)]
 mod support;
 
+use predicates::prelude::*;
+
 #[test]
 fn every_subcommand_has_help_text() {
     for sub in ["scan", "diff", "report", "inventory", "version"] {
         support::anne_cmd().args([sub, "--help"]).assert().success();
+    }
+}
+
+#[test]
+fn scan_help_lists_the_redaction_flags() {
+    for flag in [
+        "--include-command-line",
+        "--include-executable-path",
+        "--include-service-path",
+        "--include-disabled-firewall-rules",
+    ] {
+        support::anne_cmd()
+            .args(["scan", "--help"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains(flag));
     }
 }
 

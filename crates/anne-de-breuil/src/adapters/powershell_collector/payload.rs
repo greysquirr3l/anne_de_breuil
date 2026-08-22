@@ -560,6 +560,38 @@ pub(super) fn parse_payload(bytes: &[u8]) -> Result<PowerShellPayload, CollectEr
 mod tests {
     use super::{LanguageMode, PsFirewallRule, parse_payload, strip_bom};
 
+    /// Scratch verification against a real capture from the ARM64 Windows
+    /// test VM (`collect.ps1 -IncludeCommandLine -IncludeExecutablePath
+    /// -IncludeServicePath -IncludeDisabledFirewallRules`), never
+    /// committed — see `.claude/skills/windows-vm/SKILL.md`. `#[ignore]`d
+    /// so it doesn't fail CI/other machines that lack the file.
+    #[test]
+    #[ignore = "reads a real, uncommitted VM capture from /tmp"]
+    fn real_vm_capture_with_every_redaction_flag_parses() {
+        let raw = std::fs::read("/tmp/anne-vm-verify/out-included.json")
+            .expect("run the windows-vm skill's collect.ps1 workflow first");
+        let parsed = parse_payload(&raw).expect("real VM payload parses");
+        assert_eq!(parsed.language_mode, LanguageMode::Full);
+        assert!(
+            parsed
+                .processes
+                .iter()
+                .any(|p| p.path.as_deref().is_some_and(|p| !p.is_empty())),
+            "expected at least one process with a real executable_path"
+        );
+        assert!(
+            parsed
+                .processes
+                .iter()
+                .any(|p| p.command_line.as_deref().is_some_and(|c| !c.is_empty())),
+            "expected at least one process with a real command_line"
+        );
+        assert!(
+            parsed.firewall_rules.iter().any(|r| !r.enabled),
+            "expected at least one disabled firewall rule with -IncludeDisabledFirewallRules"
+        );
+    }
+
     #[test]
     fn strips_utf8_bom() {
         let with_bom = [0xEF, 0xBB, 0xBF, b'{', b'}'].to_vec();

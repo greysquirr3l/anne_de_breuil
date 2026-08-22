@@ -59,7 +59,7 @@ fn rule_id_from_raw(raw_rule_id: &str) -> RuleId {
         .unwrap_or_else(|_err| RuleId::synthesize(raw_rule_id))
 }
 
-/// Maps one [`RawRule`] into one or two [`FirewallRule`]s.
+/// Maps one [`RawRule`] into zero, one, or two [`FirewallRule`]s.
 ///
 /// [`Protocol`] has no "any" variant (a real bound socket is always
 /// concretely TCP or UDP — see that type's own doc comment), but a
@@ -68,6 +68,14 @@ fn rule_id_from_raw(raw_rule_id: &str) -> RuleId {
 /// values, one per protocol this tool tracks, sharing the same
 /// [`RuleId`] since they describe the same underlying platform rule
 /// evaluated per protocol, not two distinct rules.
+///
+/// A rule scoped to a protocol this tool doesn't track at all (ICMP,
+/// IGMP, GRE, ...) maps to zero rules rather than an error — it
+/// genuinely has no bearing on TCP/UDP port reachability, this tool's
+/// whole domain. Verified against a real Windows host: every host ships
+/// several built-in ICMPv4/ICMPv6 rules, and hard-failing the entire
+/// scan the first time one was collected (as this used to) was wrong,
+/// not a sign of corrupt data.
 fn firewall_rule_from_raw(raw: RawRule) -> Result<Vec<FirewallRule>, DomainError> {
     let rule_id = rule_id_from_raw(&raw.rule_id);
     let direction: Direction = raw.direction.parse()?;
@@ -81,18 +89,22 @@ fn firewall_rule_from_raw(raw: RawRule) -> Result<Vec<FirewallRule>, DomainError
     let policy_store: PolicyStore = raw.policy_store.parse()?;
 
     if let Some(protocol_text) = raw.protocol.as_deref() {
-        return Ok(vec![FirewallRule {
-            rule_id,
-            display_name: raw.display_name,
-            direction,
-            action,
-            protocol: protocol_text.parse()?,
-            port_spec,
-            program_filter,
-            service_filter,
-            enabled: raw.enabled,
-            policy_store,
-        }]);
+        return Ok(match protocol_text.parse() {
+            Ok(protocol) => vec![FirewallRule {
+                rule_id,
+                display_name: raw.display_name,
+                direction,
+                action,
+                protocol,
+                port_spec,
+                program_filter,
+                service_filter,
+                enabled: raw.enabled,
+                policy_store,
+            }],
+            Err(DomainError::InvalidProtocol(_)) => Vec::new(),
+            Err(other) => return Err(other),
+        });
     }
 
     Ok([Protocol::Tcp, Protocol::Udp]

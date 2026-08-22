@@ -355,6 +355,21 @@ impl PsFirewallRule {
         (!ports.is_empty()).then(|| ports.join(","))
     }
 
+    /// `Get-NetFirewallPortFilter` reports `"Any"` for a rule with no
+    /// protocol restriction, same as it does for `local_ports` --
+    /// `domain::Protocol::from_str` only knows `Tcp`/`Udp`, and
+    /// `firewall_rule_from_raw` already treats `None` here as "expand
+    /// into one rule per `Protocol` variant" (see its own doc comment),
+    /// so `"Any"` collapsing to `None` reuses that expansion instead of
+    /// becoming a literal, unparseable protocol string. Verified against
+    /// a real Windows host: `firewall_mapping::firewall_rule_from_raw`
+    /// failed on the very first real "Any"-protocol rule it saw.
+    fn protocol(&self) -> Option<String> {
+        self.protocol.as_deref().and_then(|protocol| {
+            (!protocol.eq_ignore_ascii_case("any")).then(|| protocol.to_owned())
+        })
+    }
+
     /// `policy_store_source_type` (Windows' own enum text, e.g. `"Local"`,
     /// `"Gpo"`, `"Dynamic"`) is what `domain::PolicyStore::from_str`
     /// actually expects and is present on every rule PowerShell's own API
@@ -364,6 +379,7 @@ impl PsFirewallRule {
     /// a rule this API returned at all.
     fn into_raw_rule(self) -> RawRule {
         let local_port_spec = self.local_port_spec();
+        let protocol = self.protocol();
         let policy_store = self
             .policy_store_source_type
             .or(self.policy_store_source)
@@ -373,7 +389,7 @@ impl PsFirewallRule {
             display_name: self.display_name,
             direction: self.direction,
             action: self.action,
-            protocol: self.protocol,
+            protocol,
             local_port_spec,
             program_filter: self.program_filter,
             service_filter: self.service_filter,
@@ -555,6 +571,69 @@ mod tests {
         let raw = include_bytes!("../../../fixtures/powershell/vm_real_capture.json");
         let parsed = parse_payload(raw).unwrap();
         assert!(!parsed.tcp_endpoints.is_empty());
+    }
+
+    /// Real 250-rule/3-profile capture from a live Windows host, mapped
+    /// through every domain `FromStr`/`TryFrom` the firewall/profile
+    /// mapping layer relies on -- direction, action, port spec, policy
+    /// store, program/service filters, and profile fields all round-trip
+    /// cleanly. Protocol is the one exception, and deliberately not
+    /// checked here: real hosts always carry ICMP/IGMP/other non-TCP/UDP
+    /// rules (this capture alone has ICMPv4, ICMPv6, and two raw protocol
+    /// numbers), which `domain::Protocol` intentionally doesn't model --
+    /// `anne-de-breuil-cli`'s `firewall_mapping::firewall_rule_from_raw`
+    /// (a different crate, not reachable from this one) is what actually
+    /// skips those rules rather than erroring.
+    #[test]
+    fn every_non_protocol_field_in_a_real_capture_maps_cleanly() {
+        use crate::domain::{Direction, FirewallProfileKind, PolicyStore, PortSpec, RuleAction};
+        use core::str::FromStr as _;
+
+        let raw = include_bytes!("../../../fixtures/powershell/vm_real_capture.json");
+        let parsed = parse_payload(raw).unwrap();
+        assert!(!parsed.firewall_rules.is_empty());
+        assert!(!parsed.firewall_profiles.is_empty());
+
+        for rule in &parsed.firewall_rules {
+            rule.direction
+                .parse::<Direction>()
+                .unwrap_or_else(|e| panic!("direction {:?} failed: {e}", rule.direction));
+            RuleAction::from_str(&rule.action)
+                .unwrap_or_else(|e| panic!("action {:?} failed: {e}", rule.action));
+            if let Some(spec) = rule.local_port_spec.as_deref() {
+                spec.parse::<PortSpec>()
+                    .unwrap_or_else(|e| panic!("port_spec {spec:?} failed: {e}"));
+            }
+            rule.policy_store
+                .parse::<PolicyStore>()
+                .unwrap_or_else(|e| panic!("policy_store {:?} failed: {e}", rule.policy_store));
+            if let Some(pf) = rule.program_filter.as_deref() {
+                crate::domain::ProcessPath::try_from(pf.to_owned())
+                    .unwrap_or_else(|_| panic!("program_filter {pf:?} failed"));
+            }
+            if let Some(sf) = rule.service_filter.as_deref() {
+                crate::domain::ServiceName::try_from(sf.to_owned())
+                    .unwrap_or_else(|_| panic!("service_filter {sf:?} failed"));
+            }
+        }
+        for profile in &parsed.firewall_profiles {
+            profile
+                .name
+                .parse::<FirewallProfileKind>()
+                .unwrap_or_else(|_| panic!("profile name {:?} failed", profile.name));
+            RuleAction::from_str(&profile.default_inbound_action).unwrap_or_else(|_| {
+                panic!(
+                    "default_inbound_action {:?} failed",
+                    profile.default_inbound_action
+                )
+            });
+            RuleAction::from_str(&profile.default_outbound_action).unwrap_or_else(|_| {
+                panic!(
+                    "default_outbound_action {:?} failed",
+                    profile.default_outbound_action
+                )
+            });
+        }
     }
 
     #[test]

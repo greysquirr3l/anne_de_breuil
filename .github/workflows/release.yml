@@ -31,8 +31,22 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
+      # `set -e` matters here specifically: `git describe --exact-match`
+      # exits non-zero when the checked-out commit isn't tagged (e.g. a
+      # tag moved again after this workflow_run's own triggering commit
+      # but before this job actually executed -- a real race hit during
+      # rapid iteration), and without `set -e` a failing command
+      # substitution inside `echo "tag=$(...)"` still produces a
+      # zero-exit `echo` with an *empty* value, silently writing
+      # `tag=` to GITHUB_OUTPUT. That produced a confusing failure three
+      # jobs later in `publish-release` ("GitHub Releases requires a
+      # tag") instead of a clear one here, at the actual point of
+      # failure.
       - id: tag
-        run: echo "tag=$(git describe --tags --exact-match HEAD)" >> "$GITHUB_OUTPUT"
+        run: |
+          set -e
+          tag=$(git describe --tags --exact-match HEAD)
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
   build-windows-msvc:
     needs: resolve-tag

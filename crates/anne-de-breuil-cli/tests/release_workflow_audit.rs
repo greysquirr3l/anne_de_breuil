@@ -25,6 +25,31 @@ fn release_workflow_uses_workflow_run_not_tag_push() {
     );
 }
 
+/// `resolve-tag`'s `git describe --exact-match` genuinely can fail --
+/// e.g. a real race hit during iteration, where the tag moved again
+/// after this `workflow_run`'s own triggering commit but before this
+/// job actually executed. Without `set -e`, a failing command
+/// substitution inside `echo "tag=$(...)"` still produces a zero-exit
+/// `echo` with an empty value, silently writing `tag=` to
+/// `GITHUB_OUTPUT` -- confirmed on a real run, where it surfaced three
+/// jobs later as `publish-release` failing with the opaque "GitHub
+/// Releases requires a tag" instead of a clear failure at the source.
+#[test]
+fn resolve_tag_fails_loudly_instead_of_emitting_an_empty_tag() {
+    let resolve_tag_job: String = RELEASE_WORKFLOW
+        .lines()
+        .skip_while(|line| line.trim() != "resolve-tag:")
+        .skip(1)
+        .take_while(|line| line.starts_with("    ") || line.trim().is_empty())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        resolve_tag_job.contains("set -e"),
+        "resolve-tag's `git describe` step must run under `set -e` so a failed lookup fails \
+         this job instead of silently emitting an empty tag"
+    );
+}
+
 /// Least-privilege posture, same property T28 codified for `ci.yml`: a
 /// top-level `permissions:` block scopes the default `GITHUB_TOKEN` down
 /// to read-only, so a job that doesn't explicitly ask for more can't

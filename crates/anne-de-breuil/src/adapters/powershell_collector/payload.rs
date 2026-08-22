@@ -551,6 +551,13 @@ mod tests {
     }
 
     #[test]
+    fn parses_real_capture_from_a_live_windows_vm() {
+        let raw = include_bytes!("../../../fixtures/powershell/vm_real_capture.json");
+        let parsed = parse_payload(raw).unwrap();
+        assert!(!parsed.tcp_endpoints.is_empty());
+    }
+
+    #[test]
     fn parses_fixture_payload_from_real_host() {
         let raw = include_bytes!("../../../fixtures/powershell/server2019_full_lm.json");
         let parsed = parse_payload(raw).unwrap();

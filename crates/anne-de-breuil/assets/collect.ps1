@@ -785,7 +785,19 @@ try {
         foreach ($endpoint in $tcp) {
             $processKey = $endpoint.owning_process.ToString()
             $owner = $processById[$processKey]
-            $hostedServices = @($servicesByProcessId[$processKey])
+            # @($servicesByProcessId[$processKey]) alone is a classic
+            # PowerShell trap: a hashtable miss returns $null, and
+            # wrapping $null in @() produces a *one-element* array
+            # containing that $null (@($null) -eq [$null]), not an empty
+            # array -- confirmed against a real Windows host, where this
+            # showed up as "hosted_services":[null] for any process with
+            # no hosted services. ContainsKey sidesteps the trap entirely.
+            $hostedServices = if ($servicesByProcessId.ContainsKey($processKey)) {
+                @($servicesByProcessId[$processKey])
+            }
+            else {
+                @()
+            }
             [ordered]@{
                 transport = 'TCP'
                 local_address = $endpoint.local_address
@@ -801,7 +813,19 @@ try {
         foreach ($endpoint in $udp) {
             $processKey = $endpoint.owning_process.ToString()
             $owner = $processById[$processKey]
-            $hostedServices = @($servicesByProcessId[$processKey])
+            # @($servicesByProcessId[$processKey]) alone is a classic
+            # PowerShell trap: a hashtable miss returns $null, and
+            # wrapping $null in @() produces a *one-element* array
+            # containing that $null (@($null) -eq [$null]), not an empty
+            # array -- confirmed against a real Windows host, where this
+            # showed up as "hosted_services":[null] for any process with
+            # no hosted services. ContainsKey sidesteps the trap entirely.
+            $hostedServices = if ($servicesByProcessId.ContainsKey($processKey)) {
+                @($servicesByProcessId[$processKey])
+            }
+            else {
+                @()
+            }
             [ordered]@{
                 transport = 'UDP'
                 local_address = $endpoint.local_address

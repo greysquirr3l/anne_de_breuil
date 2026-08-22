@@ -56,15 +56,23 @@ fn top_level_permissions_default_to_read_only() {
     );
 }
 
-/// Both windows-msvc targets are cross-compiled via `cargo xwin` on an
+/// The windows-msvc target is cross-compiled via `cargo xwin` on an
 /// ubuntu-latest runner, per this task's own "faster, deterministic, no
 /// Windows runner minutes for the artifact itself" rationale -- never
 /// built natively on windows-latest.
+///
+/// x86_64-pc-windows-msvc only, not aarch64: cargo-xwin 0.23.1 has a real
+/// bug cross-compiling `ring`'s C sources for aarch64-pc-windows-msvc
+/// (emits an `/imsvc` flag bare `clang` doesn't understand), reproduced
+/// identically on a local machine and on a real ubuntu-latest runner --
+/// dropped from the release matrix rather than shipping a job that fails
+/// every run, with the reason recorded in a workflow comment so this
+/// isn't a silent omission. `windows_msvc_target_omission_is_explained`
+/// below is the regression check for that comment staying in place.
 #[test]
-fn windows_msvc_targets_are_cross_compiled_via_xwin_not_built_natively() {
+fn windows_msvc_target_is_cross_compiled_via_xwin_not_built_natively() {
     assert!(RELEASE_WORKFLOW.contains("cargo xwin build"));
     assert!(RELEASE_WORKFLOW.contains("x86_64-pc-windows-msvc"));
-    assert!(RELEASE_WORKFLOW.contains("aarch64-pc-windows-msvc"));
 
     let build_windows_job: String = RELEASE_WORKFLOW
         .lines()
@@ -77,6 +85,21 @@ fn windows_msvc_targets_are_cross_compiled_via_xwin_not_built_natively() {
         !build_windows_job.contains("runs-on: windows"),
         "the xwin cross-build job must run on ubuntu-latest, not a windows runner"
     );
+    assert!(
+        !build_windows_job.contains("Cross-build aarch64-pc-windows-msvc"),
+        "aarch64-pc-windows-msvc is deliberately not built -- see this test's own doc comment"
+    );
+}
+
+/// The aarch64-pc-windows-msvc omission above is a documented, deliberate
+/// gap (a real cargo-xwin bug), not something that can silently regress
+/// into "nobody remembers why" -- the workflow comment explaining it, and
+/// the mention of the target it's explaining the *absence* of, both have
+/// to stay present.
+#[test]
+fn windows_msvc_target_omission_is_explained() {
+    assert!(RELEASE_WORKFLOW.contains("aarch64-pc-windows-msvc"));
+    assert!(RELEASE_WORKFLOW.contains("cargo-xwin"));
 }
 
 /// A real windows-latest runner has to execute the cross-built exe --
@@ -90,14 +113,14 @@ fn a_real_windows_runner_smoke_tests_the_cross_built_exe() {
 }
 
 /// The crt-static verification step (`xtask verify-static`, wrapping
-/// `llvm-objdump -p`) has to actually run against both cross-built exes,
+/// `llvm-objdump -p`) has to actually run against the cross-built exe,
 /// not just exist as an unused xtask command.
 #[test]
-fn crt_static_is_verified_for_both_windows_msvc_targets() {
+fn crt_static_is_verified_for_the_windows_msvc_target() {
     let verify_calls = RELEASE_WORKFLOW.matches("xtask -- verify-static").count();
     assert_eq!(
-        verify_calls, 2,
-        "expected one verify-static call per windows-msvc target"
+        verify_calls, 1,
+        "expected one verify-static call for the one windows-msvc target actually built"
     );
 }
 

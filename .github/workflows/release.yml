@@ -60,32 +60,38 @@ jobs:
       - name: Install llvm tools (llvm-lib, llvm-objdump)
         run: sudo apt-get update && sudo apt-get install -y llvm
 
-      # xwin cross-builds both MSVC targets on an ubuntu-latest runner --
+      # xwin cross-builds the MSVC target on an ubuntu-latest runner --
       # faster and deterministic compared to a native windows-latest build,
       # and it's link-only (import libs, not execution), so a real
       # windows-latest job still has to run the result (see
       # `smoke-test-windows`) before this is trusted.
+      #
+      # aarch64-pc-windows-msvc is deliberately not built here: cargo-xwin
+      # 0.23.1 emits `/imsvc <path>` (MSVC-style) in
+      # CFLAGS_aarch64_pc_windows_msvc, but the C compiler actually invoked
+      # for `ring`'s C sources on this target is bare `clang`, which
+      # doesn't understand that flag form and fails with "no such file or
+      # directory: '/imsvc'" -- a real cargo-xwin bug, not anything in this
+      # repo, reproduced identically on both a local macOS machine and a
+      # real ubuntu-latest runner. x86_64-pc-windows-msvc runs fine under
+      # Windows 11 ARM64's built-in x64 emulation, so this is a real gap
+      # (no native ARM64 binary) rather than a full platform drop; revisit
+      # once cargo-xwin fixes this upstream.
       - name: Cross-build x86_64-pc-windows-msvc
         run: cargo xwin build --release --target x86_64-pc-windows-msvc -p anne-de-breuil-cli
 
-      - name: Cross-build aarch64-pc-windows-msvc
-        run: cargo xwin build --release --target aarch64-pc-windows-msvc -p anne-de-breuil-cli
-
-      # `.cargo/config.toml` sets target-feature=+crt-static for both msvc
-      # targets so the collector starts on a bare host with neither Rust
+      # `.cargo/config.toml` sets target-feature=+crt-static for this
+      # target so the collector starts on a bare host with neither Rust
       # nor the VC++ Redistributable installed. This is the automated
       # check for that -- a dynamic VCRUNTIME/MSVCP import here means the
       # rustflag silently didn't apply.
       - name: Verify no dynamic CRT import
-        run: |
-          cargo run -p xtask -- verify-static target/x86_64-pc-windows-msvc/release/anne.exe
-          cargo run -p xtask -- verify-static target/aarch64-pc-windows-msvc/release/anne.exe
+        run: cargo run -p xtask -- verify-static target/x86_64-pc-windows-msvc/release/anne.exe
 
       - name: Stage artifacts
         run: |
           mkdir -p dist
           cp target/x86_64-pc-windows-msvc/release/anne.exe dist/anne-x86_64-pc-windows-msvc.exe
-          cp target/aarch64-pc-windows-msvc/release/anne.exe dist/anne-aarch64-pc-windows-msvc.exe
 
       - uses: actions/upload-artifact@v4
         with:

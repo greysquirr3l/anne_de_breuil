@@ -804,17 +804,27 @@ try {
         $is64BitProcess = $true
     }
 
+    # Every key in this envelope is snake_case, top-level included, to
+    # match the Rust parser's `#[serde(rename = "...")]` targets exactly
+    # (and every nested section below, which already used snake_case) --
+    # this used to be PascalCase at the top level only (SchemaName,
+    # Metadata, ...), which parsed fine against this project's own
+    # fixtures (hand-authored in the matching snake_case the parser
+    # expects) but never once against this script's *real* output, since
+    # every earlier real Windows CI run failed before reaching
+    # deserialization. `missing field "schema_name"` on real CI is what
+    # finally proved it.
     $payload = [ordered]@{
-        SchemaName = 'windows-listening-surface'
-        SchemaVersion = 2
-        Metadata = [ordered]@{
+        schema_name = 'windows-listening-surface'
+        schema_version = 2
+        metadata = [ordered]@{
             correlation_id = $normalizedCorrelationId
             collected_at_utc = $scriptEnd.ToUniversalTime().ToString('o')
             duration_milliseconds = $durationMilliseconds
             computer_name = $env:COMPUTERNAME
             process_id = $PID
             language_mode = $languageMode
-            powershell_version = $powerShellVersion
+            power_shell_version = $powerShellVersion
             powershell_edition = $PSVersionTable.PSEdition
             is_64_bit_process = $is64BitProcess
             is_64_bit_operating_system = $is64BitOperatingSystem
@@ -824,15 +834,15 @@ try {
             service_paths_included = [bool]$IncludeServicePath
             disabled_firewall_rules_included = [bool]$IncludeDisabledFirewallRules
         }
-        CollectionStatus = $collectionStatus
-        Diagnostics = @($diagnostics)
-        ListeningSurface = @($listeningSurface)
-        TcpEndpoints = @($tcp)
-        UdpEndpoints = @($udp)
-        Processes = @($processes)
-        Services = @($services)
-        FirewallRules = @($firewallRules)
-        FirewallProfiles = @($firewallProfiles)
+        collection_status = $collectionStatus
+        diagnostics = @($diagnostics)
+        listening_surface = @($listeningSurface)
+        tcp_endpoints = @($tcp)
+        udp_endpoints = @($udp)
+        processes = @($processes)
+        services = @($services)
+        firewall_rules = @($firewallRules)
+        firewall_profiles = @($firewallProfiles)
     }
 
     # Serialize and validate before touching the published path.

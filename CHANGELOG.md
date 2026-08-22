@@ -14,7 +14,7 @@ Task identifiers (`T01`–`T32`) cross-reference the entries in
 
 Nothing yet.
 
-## [0.1.0] — 2026-08-21
+## [0.1.0] — 2026-08-22
 
 ### Added
 
@@ -471,6 +471,80 @@ RedactionPolicy::none()`, matching `WindowsProcessResolver::new()`'s
   `cargo xwin build` (not just `check`) caught it. Split into
   `connect_agent()` (platform-gated) plus a platform-independent
   `offer_agent_identities<S>` generic over the stream type.
+- **`collect.ps1` never actually worked end to end on real Windows**
+  (post-`0.1.0`-tag CI hardening) — the script had only ever been
+  exercised against hand-written fixtures and a macOS stub path; the
+  first real `windows-latest` CI runs, and later a capture from a live
+  Windows PowerShell 5.1 host, surfaced a chain of distinct real bugs,
+  each one only reachable once the previous was fixed:
+  - `Split-Path -LiteralPath $OutputPath -Parent` — PowerShell 7's
+    `-LiteralPath` parameter set has no `-Parent` switch; the parent
+    directory is its default, implicit return value.
+  - The `PowerShellCollector` timeout (30s) was too tight for
+    `Get-NetFirewallRule`'s one-time `NetSecurity` module/CIM
+    registration cost on a cold VM — raised to 60s.
+  - The top-level JSON envelope (`SchemaName`, `Metadata`,
+    `CollectionStatus`, …) was `PascalCase` while every nested field,
+    and the parser's whole schema, was `snake_case` — this project's
+    own fixtures never caught it because they were hand-authored in
+    the casing the parser expected, not derived from real script
+    output.
+  - `Get-NetFirewallRule.EnforcementStatus` is multi-valued on a
+    domain-joined host; calling `.ToString()` directly on that array
+    literally produced the text `"System.Object[]"`.
+  - `@($servicesByProcessId[$processKey])` is PowerShell's classic
+    `$null`-wrapping trap — a hashtable miss returns `$null`, and
+    `@($null)` is a *one-element* array containing that `$null`, not
+    an empty one, producing `"hosted_services":[null]` for any process
+    with no hosted services.
+  - `Get-NetFirewallPortFilter.Protocol` reports `"Any"` the same way
+    it does for `local_ports`, and real hosts always carry several
+    built-in ICMPv4/ICMPv6 (and other non-TCP/UDP) firewall rules —
+    neither was handled, so `firewall_mapping::firewall_rule_from_raw`
+    hard-failed the entire scan the first time it collected either.
+  - Several `Get-NetFirewallRule`/`Get-NetFirewallProfile`/
+    `Win32_Service` fields could be `$null` while the schema (and the
+    Rust parser) declared them non-optional strings — nameless service
+    records are now skipped outright; `rule_id`/`display_name`/
+    `direction`/`action`/profile `name`/default actions now fall back
+    to `''`, never `$null`.
+
+  Diagnosed largely without a live Windows box: `parse_payload`'s
+  errors were extended to show a slice of the raw JSON around the
+  failure (`payload.rs`'s `reject_if_depth_truncated` and the new
+  `describe_json_error`), turning "something failed" into "here is the
+  exact field" on the next real CI run. The last few bugs were found
+  and fixed directly against a real Windows PowerShell 5.1 Desktop VM
+  (the exact binary/edition `PowerShellCollector` actually invokes),
+  whose sanitized capture is now a permanent regression fixture
+  (`fixtures/powershell/vm_real_capture.json`,
+  `parses_real_capture_from_a_live_windows_vm`,
+  `every_non_protocol_field_in_a_real_capture_maps_cleanly`).
+  [`crates/anne-de-breuil/assets/collect.ps1`](crates/anne-de-breuil/assets/collect.ps1),
+  [`crates/anne-de-breuil/src/adapters/powershell_collector/payload.rs`](crates/anne-de-breuil/src/adapters/powershell_collector/payload.rs),
+  [`crates/anne-de-breuil-cli/src/application/firewall_mapping.rs`](crates/anne-de-breuil-cli/src/application/firewall_mapping.rs).
+- **Three Windows-only clippy findings** — `missing_const_for_fn`
+  (`domain::reachability::compare_program_paths`, which needed a real
+  `#[cfg]` split: `str::eq_ignore_ascii_case` is const-stable on this
+  toolchain but `str`'s `PartialEq` is not, so only the Windows body
+  can be `const`), `duration_suboptimal_units`
+  (`Duration::from_secs(60)` → `from_mins(1)`), and
+  `too_long_first_doc_paragraph`. All three were invisible to `cargo
+  xwin build` and to clippy on macOS/Linux, since they live behind
+  `#[cfg(windows)]`; `cargo xwin clippy` (not just `cargo xwin build`)
+  now catches this whole class locally before pushing.
+- **`release.yml`'s musl and Windows cross-builds** — the musl job used
+  bare `clang`, which cross-compiles against the *host*'s glibc headers
+  (no musl sysroot on `PATH`), so `rusqlite`'s bundled `sqlite3.c`
+  referenced large-file symbols (`open64`, `fstat64`, …) that don't
+  exist in musl's static libc; switched to real `musl-gcc` cross
+  toolchains (prebuilt by musl.cc) for both `x86_64` and `aarch64`,
+  verified end to end in a real `ubuntu:latest` container. Separately,
+  the Windows job installed the `llvm` apt package (providing
+  `llvm-lib`, which `cc-rs` needs to archive `ring`'s C sources for the
+  MSVC target) only *after* the `cargo xwin build` steps that actually
+  needed it — moved earlier.
+  [`.github/workflows/release.yml`](.github/workflows/release.yml).
 
 ### Security
 

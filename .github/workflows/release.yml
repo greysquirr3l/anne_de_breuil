@@ -188,19 +188,35 @@ jobs:
       # pread64, ...) compile as real references that simply don't exist
       # in musl's static libc, a real link failure caught on real CI, not
       # local dev (ring/blake3 alone never hit this, since neither uses
-      # those symbols). Real musl-gcc cross toolchains (prebuilt by
-      # musl.cc, the same toolchains most of the Rust-on-musl ecosystem
-      # uses to cross-build from an x86_64 Linux host) ship musl's actual
-      # headers, so only the C *compiler* needs to change here --
-      # `rust-lld` stays the Rust *linker*, unchanged from before, since
-      # it links fine once the C objects reference real musl symbols.
-      # Verified in a real ubuntu:latest container against both targets
-      # before landing this.
+      # those symbols). Real musl-gcc cross toolchains (originally
+      # prebuilt by musl.cc, the same toolchains most of the Rust-on-musl
+      # ecosystem uses to cross-build from an x86_64 Linux host) ship
+      # musl's actual headers, so only the C *compiler* needs to change
+      # here -- `rust-lld` stays the Rust *linker*, unchanged from
+      # before, since it links fine once the C objects reference real
+      # musl symbols. Verified in a real ubuntu:latest container against
+      # both targets before landing this.
+      #
+      # Fetched from this repo's own `musl-cross-mirror` release, not
+      # musl.cc directly: musl.cc blocks GitHub Actions' IP ranges
+      # wholesale (its own homepage states this outright, dated
+      # 2025-05-27), confirmed by two consecutive real CI failures here
+      # before the block was found. SHA-256-verified against the digest
+      # recorded when that release was created, so a compromised or
+      # corrupted mirror asset fails loudly instead of silently.
       - name: Install musl cross toolchains
         run: |
           set -euo pipefail
+          declare -A checksums=(
+            [x86_64-linux-musl]=c5d410d9f82a4f24c549fe5d24f988f85b2679b452413a9f7e5f7b956f2fe7ea
+            [aarch64-linux-musl]=c909817856d6ceda86aa510894fa3527eac7989f0ef6e87b5721c58737a06c38
+          )
           for triple in x86_64-linux-musl aarch64-linux-musl; do
-            curl -fsSL "https://musl.cc/${triple}-cross.tgz" | sudo tar -xz -C /opt
+            archive="/tmp/${triple}-cross.tgz"
+            curl -fsSL -o "$archive" \
+              "https://github.com/${GITHUB_REPOSITORY}/releases/download/musl-cross-mirror/${triple}-cross.tgz"
+            echo "${checksums[$triple]}  $archive" | sha256sum -c -
+            sudo tar -xzf "$archive" -C /opt
             echo "/opt/${triple}-cross/bin" >> "$GITHUB_PATH"
           done
 

@@ -204,11 +204,25 @@ fn report_format_html_renders_a_self_contained_document() {
     assert!(html.contains("Content-Security-Policy"));
     assert!(html.contains("--paper: #f5f5f4"));
     assert!(html.contains("base64,"), "default --fonts is embed");
-    for pattern in ["src=\"http", "href=\"http", "url(http"] {
+    for pattern in ["src=\"http", "url(http"] {
         assert!(
             !html.contains(pattern),
             "found external reference {pattern}"
         );
+    }
+    // `href="http` is allowed only on a plain `<a>` navigation link (the
+    // report's own repo-attribution footer) -- never on `<link>` or any
+    // other element, which would mean the document depends on a network
+    // fetch to look right.
+    let mut rest = html.as_ref();
+    while let Some(idx) = rest.find("href=\"http") {
+        let before = rest.get(..idx).unwrap_or_default();
+        assert!(
+            before.ends_with("<a "),
+            "found a non-anchor external href reference near: {}",
+            rest.get(idx..).and_then(|s| s.get(..40)).unwrap_or(rest)
+        );
+        rest = rest.get(idx + "href=\"http".len()..).unwrap_or_default();
     }
 }
 

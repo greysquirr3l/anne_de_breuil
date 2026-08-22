@@ -18,6 +18,17 @@ Nothing yet.
 
 ### Added
 
+- **`xtask build-windows`** — `release.yml`'s Windows cross-build was two
+  raw inline steps (`cargo xwin build --release --target
+  x86_64-pc-windows-msvc -p anne-de-breuil-cli`, then `xtask
+  verify-static`) with no local equivalent; a developer wanting a fresh
+  `anne.exe` had to remember and re-type both by hand. Wraps them into one
+  task, reusing `verify_static::assert_no_dynamic_crt_import` directly
+  rather than shelling out to itself. Requires `cargo-xwin` and
+  `llvm-objdump` already on `PATH` — matches every other xtask task's
+  "never installs anything, only operates on what's already there"
+  contract.
+  [`xtask/src/build_windows.rs`](xtask/src/build_windows.rs).
 - **`anne scan --include-*` redaction flags** — `RedactionPolicy`'s own doc
   comment already described a `--include-command-line` CLI switch, and
   `PowerShellCollector`/`LinuxProcessResolver` already implemented

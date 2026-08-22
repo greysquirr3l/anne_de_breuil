@@ -14,6 +14,45 @@ Task identifiers (`T01`–`T32`) cross-reference the entries in
 
 Nothing yet.
 
+## [0.2.0] — 2026-08-22
+
+### Added
+
+- **`anne scan --include-*` redaction flags** — `RedactionPolicy`'s own doc
+  comment already described a `--include-command-line` CLI switch, and
+  `PowerShellCollector`/`LinuxProcessResolver` already implemented
+  `with_redaction_policy` builders for it, but nothing in the CLI crate ever
+  called them: every collector was built with the hardcoded all-off default,
+  with no flag or config surface for an operator to opt in. Adds
+  `--include-command-line`, `--include-executable-path`,
+  `--include-service-path`, and `--include-disabled-firewall-rules` to
+  `anne scan`, plus matching `[scan]` config fields, merged CLI-or-config the
+  same way `--include-udp` already was and threaded through
+  `collector_factory::local_collectors` into whichever adapter the platform
+  actually constructs.
+  [`crates/anne-de-breuil-cli/src/cli.rs`](crates/anne-de-breuil-cli/src/cli.rs),
+  [`crates/anne-de-breuil/src/adapters/config/scan.rs`](crates/anne-de-breuil/src/adapters/config/scan.rs),
+  [`crates/anne-de-breuil-cli/src/application/scan.rs`](crates/anne-de-breuil-cli/src/application/scan.rs),
+  [`crates/anne-de-breuil-cli/src/adapters/collector_factory.rs`](crates/anne-de-breuil-cli/src/adapters/collector_factory.rs).
+
+### Fixed
+
+- **`WindowsProcessResolver` had no `RedactionPolicy` support at all** — the
+  native Win32 fallback (used only when the embedded PowerShell helper can't
+  be written to disk) unconditionally captured full executable paths and
+  command lines via `sysinfo`, with no way to opt out, unlike the other two
+  process-resolver adapters. Brought up to parity: a `redaction` field, a
+  `with_redaction_policy` builder mirroring `LinuxProcessResolver`'s, and
+  gated capture in `build_process_map`.
+  [`crates/anne-de-breuil/src/adapters/windows_collector/processes.rs`](crates/anne-de-breuil/src/adapters/windows_collector/processes.rs).
+
+Verified against a real Windows PowerShell 5.1 Desktop host (ARM64 VM), not
+just `cargo xwin build`/`clippy`: `collect.ps1` run with every opt-in switch
+produced real executable paths, command lines, service `PathName`s, and
+disabled firewall rules, versus none of that surfacing with the flags off —
+and the real capture round-trips through the actual `parse_payload`
+deserializer.
+
 ## [0.1.0] — 2026-08-22
 
 ### Added
@@ -604,5 +643,6 @@ cut, so the version number isn't claimed twice. See
 [`PROGRESS.md`](PROGRESS.md) for the per-task index and `git log` for
 the commit-level detail.
 
-[Unreleased]: https://github.com/greysquirr3l/anne_de_breuil/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/greysquirr3l/anne_de_breuil/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/greysquirr3l/anne_de_breuil/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/greysquirr3l/anne_de_breuil/releases/tag/v0.1.0

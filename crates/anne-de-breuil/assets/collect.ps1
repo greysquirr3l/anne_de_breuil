@@ -282,9 +282,24 @@ try {
 
     $services = @(
         foreach ($serviceItem in $serviceRaw) {
+            # A handful of orphaned/driver-only Win32_Service records on a
+            # real host can genuinely have a null Name -- observed on real
+            # CI (a services.exe-hosted entry with no name at all). A
+            # nameless service isn't identifiable, actionable data, so it
+            # is skipped rather than emitted with a null in a field this
+            # payload's own schema (and the Rust parser) declares
+            # non-optional.
+            if (($null -eq $serviceItem.Name) -or ($serviceItem.Name -eq '')) {
+                continue
+            }
             $record = [ordered]@{
                 name = $serviceItem.Name
-                display_name = $serviceItem.DisplayName
+                display_name = if ($null -ne $serviceItem.DisplayName) {
+                    $serviceItem.DisplayName
+                }
+                else {
+                    ''
+                }
                 process_id = $serviceItem.ProcessId
                 state = $serviceItem.State
                 status = $serviceItem.Status
@@ -479,7 +494,13 @@ try {
 
     $firewallRules = @(
         foreach ($firewallRule in $firewallRuleRaw) {
-            $ruleId = $null
+            # rule_id, display_name, direction, and action are all
+            # non-optional strings in this payload's own schema (and the
+            # Rust parser) -- '' below where a source property is null,
+            # never $null, for the same reason the Services section
+            # above skips nameless entries rather than emitting a null
+            # into a required string field.
+            $ruleId = ''
             $ruleName = $null
             $lookupKeys = @()
 
@@ -573,7 +594,12 @@ try {
             [ordered]@{
                 rule_id = $ruleId
                 name = $ruleName
-                display_name = $firewallRule.DisplayName
+                display_name = if ($null -ne $firewallRule.DisplayName) {
+                    $firewallRule.DisplayName
+                }
+                else {
+                    ''
+                }
                 description = $firewallRule.Description
                 display_group = $firewallRule.DisplayGroup
                 group = $firewallRule.Group
@@ -582,13 +608,13 @@ try {
                     $firewallRule.Direction.ToString()
                 }
                 else {
-                    $null
+                    ''
                 }
                 action = if ($null -ne $firewallRule.Action) {
                     $firewallRule.Action.ToString()
                 }
                 else {
-                    $null
+                    ''
                 }
                 profiles = @($firewallRule.Profile)
                 protocol = $protocol
@@ -680,12 +706,17 @@ try {
 
     $firewallProfiles = @(
         foreach ($firewallProfile in $firewallProfileRaw) {
+            # name, default_inbound_action, and default_outbound_action
+            # are non-optional strings in RawProfile (the domain DTO
+            # these deserialize directly into, no Ps* wrapper) -- '' when
+            # a source property is null, never $null, matching the same
+            # fix applied to FirewallRules above.
             [ordered]@{
                 name = if ($null -ne $firewallProfile.Name) {
                     $firewallProfile.Name.ToString()
                 }
                 else {
-                    $null
+                    ''
                 }
                 enabled = if ($null -ne $firewallProfile.Enabled) {
                     $firewallProfile.Enabled.ToString() -eq 'True'
@@ -699,7 +730,7 @@ try {
                     $firewallProfile.DefaultInboundAction.ToString()
                 }
                 else {
-                    $null
+                    ''
                 }
                 default_outbound_action = if (
                     $null -ne $firewallProfile.DefaultOutboundAction
@@ -707,7 +738,7 @@ try {
                     $firewallProfile.DefaultOutboundAction.ToString()
                 }
                 else {
-                    $null
+                    ''
                 }
                 allow_inbound_rules = $firewallProfile.AllowInboundRules
                 allow_local_firewall_rules = $firewallProfile.AllowLocalFirewallRules

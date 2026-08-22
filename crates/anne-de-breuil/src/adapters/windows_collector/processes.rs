@@ -24,7 +24,9 @@ use sysinfo::System;
 use tokio::sync::Mutex as AsyncMutex;
 
 use super::services::enum_services_grouped_by_pid;
-use crate::application::collect::{CollectError, ProcessResolver, RawProcess, RawService};
+use crate::application::collect::{
+    CollectError, ProcessResolver, RawProcess, RawService, RedactionPolicy,
+};
 use crate::domain::ProcessId;
 
 /// PID → every service `EnumServicesStatusExW` reported running under it.
@@ -35,6 +37,7 @@ type ServicesByPid = HashMap<u32, Vec<RawService>>;
 pub struct WindowsProcessResolver {
     processes: AsyncMutex<Option<Arc<HashMap<u32, RawProcess>>>>,
     services_by_pid: AsyncMutex<Option<Arc<ServicesByPid>>>,
+    redaction: RedactionPolicy,
 }
 
 impl WindowsProcessResolver {
@@ -46,7 +49,21 @@ impl WindowsProcessResolver {
         Self {
             processes: AsyncMutex::const_new(None),
             services_by_pid: AsyncMutex::const_new(None),
+            redaction: RedactionPolicy::none(),
         }
+    }
+
+    /// Builds a resolver that opts in to one or more sensitive-field
+    /// categories via the [`RedactionPolicy`]. Mirrors
+    /// `LinuxProcessResolver::with_redaction_policy` and
+    /// `PowerShellCollector::with_redaction_policy` so the same flag means
+    /// the same thing on every platform — `include_command_line = false`
+    /// means `RawProcess.command_line == None` here exactly as it does on
+    /// the other two adapters.
+    #[must_use]
+    pub const fn with_redaction_policy(mut self, redaction: RedactionPolicy) -> Self {
+        self.redaction = redaction;
+        self
     }
 
     async fn process_snapshot(&self) -> Result<Arc<HashMap<u32, RawProcess>>, CollectError> {
@@ -57,7 +74,8 @@ impl WindowsProcessResolver {
             }
         }
 
-        let map = tokio::task::spawn_blocking(build_process_map)
+        let redaction = self.redaction;
+        let map = tokio::task::spawn_blocking(move || build_process_map(redaction))
             .await
             .map_err(|source| CollectError::Parse(source.to_string()))?;
         let map = Arc::new(map);
@@ -107,15 +125,23 @@ impl ProcessResolver for WindowsProcessResolver {
     }
 }
 
-fn build_process_map() -> HashMap<u32, RawProcess> {
+fn build_process_map(redaction: RedactionPolicy) -> HashMap<u32, RawProcess> {
     let system = System::new_all();
     system
         .processes()
         .iter()
         .map(|(pid, process)| {
             let raw_pid = pid.as_u32();
-            let path = process.exe().map(|exe| exe.display().to_string());
-            let command_line = command_line_of(process);
+            let path = if redaction.include_executable_path {
+                process.exe().map(|exe| exe.display().to_string())
+            } else {
+                None
+            };
+            let command_line = if redaction.include_command_line {
+                command_line_of(process)
+            } else {
+                None
+            };
             (
                 raw_pid,
                 RawProcess {
@@ -139,4 +165,19 @@ fn command_line_of(process: &sysinfo::Process) -> Option<String> {
             .collect::<Vec<_>>()
             .join(" "),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn redaction_policy_none_omits_path_and_command_line() {
+        let map = build_process_map(RedactionPolicy::none());
+        assert!(!map.is_empty(), "the running host has at least one process");
+        for process in map.values() {
+            assert_eq!(process.path, None);
+            assert_eq!(process.command_line, None);
+        }
+    }
 }

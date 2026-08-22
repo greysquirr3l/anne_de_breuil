@@ -36,15 +36,23 @@
 //! a temp-file handle for the duration of the scan without changing the
 //! public signature. Nothing currently needs it — `PowerShellCollector`
 //! already manages its own child process lifetime internally.
+//!
+//! `local_collectors`'s `redaction` parameter is applied to whichever
+//! process resolver the running platform actually constructs
+//! (`LinuxProcessResolver`, `PowerShellCollector`, or
+//! `WindowsProcessResolver` inside `WindowsNativeCollectorSet`) via each
+//! adapter's own `with_redaction_policy` builder, so the same
+//! `--include-*` flag means the same thing regardless of which real
+//! adapter this host ends up using.
 
 use anne_de_breuil::application::collect::{
     CollectError, EndpointSource, FirewallPolicySource, ProcessResolver, RawEndpoint, RawProcess,
-    RawProfile, RawRule, RawService, SignatureVerifier,
+    RawProfile, RawRule, RawService, RedactionPolicy, SignatureVerifier,
 };
 use anne_de_breuil::domain::{ProcessId, ProcessPath, SignatureStatus};
 
 #[cfg(target_os = "linux")]
-use anne_de_breuil::adapters::linux_collector::LinuxCollectors;
+use anne_de_breuil::adapters::linux_collector::{LinuxCollectors, LinuxProcessResolver};
 #[cfg(windows)]
 use anne_de_breuil::adapters::powershell_collector::PowerShellCollector;
 #[cfg(windows)]
@@ -86,20 +94,37 @@ const POWERSHELL_TIMEOUT: std::time::Duration = std::time::Duration::from_mins(1
 // real I/O -- so it keeps its own non-`const` signature. One shared
 // signature can't satisfy all three.
 #[cfg(target_os = "linux")]
-pub const fn local_collectors(include_udp: bool) -> (LocalCollectorSet, LocalCollectorGuard) {
+pub fn local_collectors(
+    include_udp: bool,
+    redaction: RedactionPolicy,
+) -> (LocalCollectorSet, LocalCollectorGuard) {
     let _ = include_udp;
-    (LocalCollectorSet::for_this_platform(), LocalCollectorGuard)
+    let mut set = LocalCollectorSet::for_this_platform();
+    if let LocalCollectorSet::Linux(collectors) = &mut set {
+        collectors.processes = LinuxProcessResolver::new().with_redaction_policy(redaction);
+    }
+    (set, LocalCollectorGuard)
 }
 
 #[cfg(windows)]
-pub fn local_collectors(include_udp: bool) -> (LocalCollectorSet, LocalCollectorGuard) {
+pub fn local_collectors(
+    include_udp: bool,
+    redaction: RedactionPolicy,
+) -> (LocalCollectorSet, LocalCollectorGuard) {
     let _ = include_udp;
-    (LocalCollectorSet::for_this_platform(), LocalCollectorGuard)
+    (
+        LocalCollectorSet::for_this_platform(redaction),
+        LocalCollectorGuard,
+    )
 }
 
 #[cfg(not(any(target_os = "linux", windows)))]
-pub const fn local_collectors(include_udp: bool) -> (LocalCollectorSet, LocalCollectorGuard) {
+pub const fn local_collectors(
+    include_udp: bool,
+    redaction: RedactionPolicy,
+) -> (LocalCollectorSet, LocalCollectorGuard) {
     let _ = include_udp;
+    let _ = redaction;
     (LocalCollectorSet::for_this_platform(), LocalCollectorGuard)
 }
 
@@ -123,11 +148,13 @@ impl WindowsNativeCollectorSet {
     /// `sysinfo`/`WinVerifyTrust` are all queried lazily, on first use, not
     /// at construction) — this never fails, which is exactly why it's the
     /// fallback of last resort rather than something with its own error
-    /// path a caller has to handle.
-    fn new() -> Self {
+    /// path a caller has to handle. `redaction` is applied to the process
+    /// resolver — the fallback path's equivalent of
+    /// `PowerShellCollector::with_redaction_policy`.
+    fn new(redaction: RedactionPolicy) -> Self {
         Self {
             endpoints: NetstatEndpointSource::new(),
-            processes: WindowsProcessResolver::new(),
+            processes: WindowsProcessResolver::new().with_redaction_policy(redaction),
             firewall: WmiFirewallPolicySource::new(),
             signatures: WinTrustSignatureVerifier::new(),
         }
@@ -160,15 +187,15 @@ impl LocalCollectorSet {
     }
 
     #[cfg(windows)]
-    fn for_this_platform() -> Self {
+    fn for_this_platform(redaction: RedactionPolicy) -> Self {
         match PowerShellCollector::new(POWERSHELL_TIMEOUT) {
-            Ok(collector) => Self::WindowsPowerShell(collector),
+            Ok(collector) => Self::WindowsPowerShell(collector.with_redaction_policy(redaction)),
             Err(err) => {
                 tracing::warn!(
                     error = %err,
                     "PowerShell collector unavailable, falling back to native Win32 adapters"
                 );
-                Self::WindowsNative(WindowsNativeCollectorSet::new())
+                Self::WindowsNative(WindowsNativeCollectorSet::new(redaction))
             }
         }
     }
@@ -286,7 +313,8 @@ impl SignatureVerifier for LocalCollectorSet {
 #[cfg(test)]
 mod tests {
     use anne_de_breuil::application::collect::{
-        CollectError, EndpointSource as _, FirewallPolicySource as _, SignatureVerifier as _,
+        CollectError, EndpointSource as _, FirewallPolicySource as _, RedactionPolicy,
+        SignatureVerifier as _,
     };
     use anne_de_breuil::domain::ProcessPath;
 
@@ -299,7 +327,7 @@ mod tests {
     /// calls directly.
     #[tokio::test]
     async fn local_collector_set_drives_every_port_without_panicking() {
-        let (collector_set, _guard) = super::local_collectors(false);
+        let (collector_set, _guard) = super::local_collectors(false, RedactionPolicy::none());
 
         // On this dev machine (macOS) `for_this_platform` always returns
         // `Stub`, so this only proves the empty-answer path end to end

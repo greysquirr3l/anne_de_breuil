@@ -19,6 +19,39 @@ fn scan_emit_json_produces_a_valid_snapshot() {
     assert_eq!(snapshot.collector_version, env!("CARGO_PKG_VERSION"));
 }
 
+/// Only meaningful on platforms with a real local collector
+/// (`crate::adapters::collector_factory::local_collectors`'s Linux and
+/// Windows branches) — on every other platform (macOS, this crate's CI
+/// matrix included) `local_collectors` always returns the `Stub` variant,
+/// whose endpoint list is unconditionally empty regardless of any
+/// `--include-*` flag, so the assertion below would be false by
+/// construction rather than by a real wiring bug.
+///
+/// Binds its own listener rather than trusting the ambient host to have
+/// *any* listening socket (a bare CI runner may not) — this guarantees a
+/// real, known endpoint for the collector to find and attribute to this
+/// test binary's own pid.
+#[test]
+#[cfg(any(target_os = "linux", windows))]
+fn scan_include_executable_path_populates_process_path() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind a test listener");
+
+    let output = support::anne_cmd()
+        .args(["scan", "--emit-json", "--include-executable-path"])
+        .output()
+        .expect("anne scan --emit-json --include-executable-path runs");
+
+    drop(listener);
+
+    assert!(output.status.success());
+    let snapshot: ScanSnapshot =
+        serde_json::from_slice(&output.stdout).expect("stdout is a valid ScanSnapshot");
+    assert!(
+        snapshot.endpoints.iter().any(|e| e.process_path.is_some()),
+        "expected at least one endpoint with a resolved process_path"
+    );
+}
+
 #[test]
 fn diff_reports_the_critical_endpoint_appeared_entry() {
     let dir = tempfile::tempdir().expect("tempdir");

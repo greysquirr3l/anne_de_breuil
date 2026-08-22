@@ -170,19 +170,31 @@ async fn run_interactive(args: ScanArgs, resolved: &ResolvedConfig) -> Result<Ex
 /// honest empty stub everywhere else — see
 /// `adapters::collector_factory`'s own module docs).
 ///
-/// `include_udp` merges the CLI flag with `[scan]`'s config value (either
-/// one turning it on is enough), though no real adapter filters by
-/// transport on it yet — see `collector_factory::local_collectors`'s own
-/// doc comment. `include_loopback`/`skip_signature`/`policy_store` stay
-/// unwired CLI-only options for now: `include_loopback`/`skip_signature`
-/// have no call site anywhere in this crate, and `policy_store` has
-/// nothing to select between since `FirewallPolicySource::inbound_rules`
-/// takes no policy-store parameter. Distinct, standing gaps from the one
-/// this function closes (getting real endpoint/firewall data flowing at
-/// all) — see `docs/integration-wiring-audit.md`.
+/// `include_udp` and the four `--include-*` redaction flags each merge the
+/// CLI flag with `[scan]`'s config value (either one turning it on is
+/// enough) — though no real adapter filters by transport on `include_udp`
+/// yet, see `collector_factory::local_collectors`'s own doc comment. The
+/// redaction flags are threaded into a `RedactionPolicy` and applied to
+/// whichever collector adapter this platform actually constructs.
+/// `include_loopback`/`skip_signature`/`policy_store` stay unwired
+/// CLI-only options for now: `include_loopback`/`skip_signature` have no
+/// call site anywhere in this crate, and `policy_store` has nothing to
+/// select between since `FirewallPolicySource::inbound_rules` takes no
+/// policy-store parameter. Distinct, standing gaps from the one this
+/// function closes (getting real endpoint/firewall data flowing at all) —
+/// see `docs/integration-wiring-audit.md`.
 async fn scan_local(args: &ScanArgs, scan_config: &ScanConfig) -> Result<ScanSnapshot> {
     let include_udp = args.include_udp || scan_config.include_udp;
-    let (collector_set, _guard) = crate::adapters::collector_factory::local_collectors(include_udp);
+    let redaction = anne_de_breuil::application::collect::RedactionPolicy {
+        include_command_line: args.include_command_line || scan_config.include_command_line,
+        include_executable_path: args.include_executable_path
+            || scan_config.include_executable_path,
+        include_service_path: args.include_service_path || scan_config.include_service_path,
+        include_disabled_firewall_rules: args.include_disabled_firewall_rules
+            || scan_config.include_disabled_firewall_rules,
+    };
+    let (collector_set, _guard) =
+        crate::adapters::collector_factory::local_collectors(include_udp, redaction);
 
     let collected = collect_endpoints(&collector_set)
         .await

@@ -128,6 +128,30 @@ pub struct ScanArgs {
     #[arg(long)]
     pub skip_signature: bool,
 
+    /// Include process command lines in the snapshot. Off by default --
+    /// command lines routinely carry credentials, connection strings, and
+    /// tokens.
+    #[arg(long)]
+    pub include_command_line: bool,
+
+    /// Include process executable paths in the snapshot. Off by default --
+    /// install paths can leak customer names and sensitive directory
+    /// layouts.
+    #[arg(long)]
+    pub include_executable_path: bool,
+
+    /// Include hosted-service `PathName` values (systemd `ExecStart=` / the
+    /// Windows service `PathName`) in the snapshot. Off by default -- these
+    /// can carry arguments and embedded secrets.
+    #[arg(long)]
+    pub include_service_path: bool,
+
+    /// Include firewall rules that are present but disabled. Off by
+    /// default -- disabled rules don't shape connectivity, but their
+    /// program/service filter strings can still leak.
+    #[arg(long)]
+    pub include_disabled_firewall_rules: bool,
+
     #[arg(long, value_enum)]
     pub policy_store: Option<PolicyStoreArg>,
 

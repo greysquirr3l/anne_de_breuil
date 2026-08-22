@@ -166,20 +166,31 @@ const SYSTEM_PSEUDO_PATH: &str = "System";
 /// comparison semantics), case-sensitive everywhere else. The `System`
 /// pseudo-path is a fixed platform label, not a filesystem path, so it is
 /// always compared case-insensitively regardless of target platform.
+///
+/// Split by `#[cfg]` rather than left as one non-`const fn` with an
+/// internal branch: `str::eq_ignore_ascii_case` is const-stable on this
+/// toolchain but `str`'s `PartialEq` (`==`, the non-Windows branch) is
+/// not, so only the Windows body can be `const`. clippy only sees
+/// whichever branch the current target actually compiles, so this only
+/// surfaced on a real windows-latest CI run.
+#[cfg(windows)]
+const fn compare_program_paths(filter: &str, process_path: &str) -> bool {
+    if filter.eq_ignore_ascii_case(SYSTEM_PSEUDO_PATH)
+        || process_path.eq_ignore_ascii_case(SYSTEM_PSEUDO_PATH)
+    {
+        return filter.eq_ignore_ascii_case(process_path);
+    }
+    filter.eq_ignore_ascii_case(process_path)
+}
+
+#[cfg(not(windows))]
 fn compare_program_paths(filter: &str, process_path: &str) -> bool {
     if filter.eq_ignore_ascii_case(SYSTEM_PSEUDO_PATH)
         || process_path.eq_ignore_ascii_case(SYSTEM_PSEUDO_PATH)
     {
         return filter.eq_ignore_ascii_case(process_path);
     }
-    #[cfg(windows)]
-    {
-        filter.eq_ignore_ascii_case(process_path)
-    }
-    #[cfg(not(windows))]
-    {
-        filter == process_path
-    }
+    filter == process_path
 }
 
 /// Expands Windows-style `%VAR%` placeholders in a program-filter string.

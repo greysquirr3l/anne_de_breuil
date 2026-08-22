@@ -66,7 +66,7 @@ use anne_de_breuil::adapters::windows_collector::{
 /// 30s budget on a cold CI VM — real windows-latest GitHub Actions runs
 /// timed out here at exactly that step, not on a hung process.
 #[cfg(windows)]
-const POWERSHELL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+const POWERSHELL_TIMEOUT: std::time::Duration = std::time::Duration::from_mins(1);
 
 /// Picks and constructs the local collector for this build's target platform.
 ///
@@ -103,10 +103,12 @@ pub const fn local_collectors(include_udp: bool) -> (LocalCollectorSet, LocalCol
     (LocalCollectorSet::for_this_platform(), LocalCollectorGuard)
 }
 
-/// Bundles the four native Win32 collector adapters
-/// (`anne_de_breuil::adapters::windows_collector`) as the
-/// PowerShell-unavailable fallback, the same shape `LinuxCollectors`
-/// already establishes for its own platform.
+/// Bundles the four native Win32 collector adapters as the
+/// PowerShell-unavailable fallback.
+///
+/// The adapters themselves live in `anne_de_breuil::adapters::windows_collector`;
+/// this is the same bundling shape `LinuxCollectors` already establishes
+/// for its own platform.
 #[cfg(windows)]
 pub struct WindowsNativeCollectorSet {
     endpoints: NetstatEndpointSource,

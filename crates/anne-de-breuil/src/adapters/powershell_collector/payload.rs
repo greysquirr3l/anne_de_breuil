@@ -579,7 +579,7 @@ mod tests {
     /// store, program/service filters, and profile fields all round-trip
     /// cleanly. Protocol is the one exception, and deliberately not
     /// checked here: real hosts always carry ICMP/IGMP/other non-TCP/UDP
-    /// rules (this capture alone has ICMPv4, ICMPv6, and two raw protocol
+    /// rules (this capture alone has `ICMPv4`, `ICMPv6`, and two raw protocol
     /// numbers), which `domain::Protocol` intentionally doesn't model --
     /// `anne-de-breuil-cli`'s `firewall_mapping::firewall_rule_from_raw`
     /// (a different crate, not reachable from this one) is what actually

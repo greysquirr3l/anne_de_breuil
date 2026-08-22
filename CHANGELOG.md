@@ -79,6 +79,23 @@ disabled firewall rules, versus none of that surfacing with the flags off —
 and the real capture round-trips through the actual `parse_payload`
 deserializer.
 
+### Documentation
+
+- **README overhaul** — the "Redaction" and "What gets collected" sections
+  claimed the collection-time opt-in fields had "no flag, CLI or otherwise"
+  wiring them up, which this same release makes false; both sections now
+  document the real `--include-*` flags and clearly separate the two
+  redaction layers (collection-time inclusion vs. unconditional report-time
+  secret scrubbing) rather than conflating them. Added a table of contents,
+  an "Installation" section (GitHub Releases table + checksum verification,
+  build-from-source), CI/release/license/toolchain badges, a "License"
+  section (the dual MIT/Apache-2.0 terms already in `Cargo.toml` were never
+  stated in the README itself), and a mention of `xtask build-windows` in
+  both "Cross-compilation" and "Release artifacts". The local-scan usage
+  example was re-run for real against the current build (`collector_version`
+  was still showing `0.1.0`).
+  [`README.md`](README.md).
+
 ## [0.1.0] — 2026-08-22
 
 ### Added

@@ -1,5 +1,10 @@
 # anne-de-breuil
 
+[![CI](https://github.com/greysquirr3l/anne_de_breuil/actions/workflows/ci.yml/badge.svg)](https://github.com/greysquirr3l/anne_de_breuil/actions/workflows/ci.yml)
+[![Release](https://github.com/greysquirr3l/anne_de_breuil/actions/workflows/release.yml/badge.svg)](https://github.com/greysquirr3l/anne_de_breuil/actions/workflows/release.yml)
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
+[![Rust 1.97.1](https://img.shields.io/badge/rust-1.97.1-orange.svg)](rust-toolchain.toml)
+
 Enumerates the listening-port surface of a host and correlates each endpoint
 with its owning process, hosted services, binary signature, and the
 effective host firewall policy that governs it.
@@ -14,6 +19,22 @@ Output targets are JSON, CSV, SARIF, and a self-contained HTML5 report with
 server-rendered SVG diagrams, no external assets, and no network fetches at
 view time.
 
+## Table of contents
+
+- [Authorized use only](#authorized-use-only)
+- [Installation](#installation)
+- [What gets collected](#what-gets-collected)
+- [Operational contract](#operational-contract)
+- [Usage examples](#usage-examples)
+- [Layout](#layout)
+- [Toolchain](#toolchain)
+- [Build, test, lint](#build-test-lint)
+- [Cross-compilation](#cross-compilation)
+- [Release artifacts](#release-artifacts)
+- [Supply chain](#supply-chain)
+- [Fonts (report-html)](#fonts-report-html)
+- [License](#license)
+
 ## Authorized use only
 
 This tool enumerates listening ports, running processes, and firewall
@@ -23,6 +44,47 @@ authorised to assess — your own infrastructure, or a client's under an
 explicit engagement. Unauthorised port scanning and remote code execution
 against systems you don't control is illegal in most jurisdictions,
 independent of intent.
+
+## Installation
+
+### From GitHub Releases
+
+`release.yml` publishes a static, self-contained binary for every tagged
+version — see [Release artifacts](#release-artifacts) for exactly how each
+one is built and verified. Grab the archive for your platform from the
+[Releases page](https://github.com/greysquirr3l/anne_de_breuil/releases):
+
+| Platform | Artifact |
+| --- | --- |
+| Windows (x86_64) | `anne-x86_64-pc-windows-msvc.exe` |
+| Windows (ARM64) | `anne-aarch64-pc-windows-msvc.exe` |
+| Linux (x86_64, musl) | `anne-x86_64-unknown-linux-musl` |
+| Linux (ARM64, musl) | `anne-aarch64-unknown-linux-musl` |
+
+Every release also publishes `SHA256SUMS.txt` and a CycloneDX SBOM —
+verify the checksum before running a binary pulled from anywhere but a
+build you did yourself:
+
+```bash
+sha256sum -c SHA256SUMS.txt --ignore-missing
+```
+
+Windows binaries are Authenticode-signed only when a code-signing
+certificate is configured for this repository (see
+[Release artifacts](#release-artifacts) — none is today, so current builds
+are unsigned and will be flagged by EDR on a real target host).
+
+### From source
+
+```bash
+git clone https://github.com/greysquirr3l/anne_de_breuil.git
+cd anne_de_breuil
+cargo build --release --workspace
+./target/release/anne --help
+```
+
+Requires the pinned toolchain — see [Toolchain](#toolchain). No `cargo
+install` crates.io path exists yet; this project isn't published there.
 
 ## What gets collected
 
@@ -49,17 +111,24 @@ being observed in the socket table and the follow-up query is recorded as
 For every endpoint whose owning pid resolves to a live process:
 
 - Process id.
-- Executable path — **opt-in, off by default.** `RedactionPolicy::
-include_executable_path` gates this on both platforms; a collector built
-  with the default policy never reports it.
+- Executable path — **opt-in, off by default.** Pass `--include-executable-path`
+  to `anne scan` (or set `include_executable_path = true` under `[scan]` in
+  `anne.toml`) to collect it; a scan built with the default policy never
+  reports it. `RedactionPolicy::include_executable_path` is the underlying
+  switch, respected identically by all three process-resolver adapters —
+  `PowerShellCollector`, `LinuxProcessResolver`, and the native Win32
+  fallback `WindowsProcessResolver` used when the PowerShell helper can't
+  run.
 - Command line — **opt-in, off by default**, same mechanism
-  (`include_command_line`). See "Redaction" below — even when opted in, a
-  collected command line still passes through unconditional secret
-  redaction before it can reach any report format.
+  (`--include-command-line`). See [Redaction](#redaction) below
+  — even when opted in, a collected command line still passes through
+  unconditional secret redaction before it can reach any report format.
 - Hosted services: machine name and display name for every service the
   process hosts (Windows service, systemd unit), always collected —
   service names aren't treated as sensitive the way paths and command
-  lines are.
+  lines are. Service `PathName` values (the systemd `ExecStart=` or
+  Windows service `PathName`, which can carry arguments and embedded
+  secrets) are a separate opt-in, `--include-service-path`.
 - Binary signature status:
   - **Windows** — real Authenticode verification via `WinVerifyTrust`
     (`adapters/windows_collector/signatures.rs`'s `WinTrustSignatureVerifier`).
@@ -83,6 +152,10 @@ state:
 - Per rule: rule id, display name, direction, action (allow/block),
   protocol, port filter, program-path scope, service-name scope, enabled
   state, and policy-store origin (e.g. local, Group Policy, dynamic).
+  Disabled rules are excluded by default — pass `--include-disabled-firewall-rules`
+  to collect them too; their `program_filter`/`service_filter` strings can
+  still leak, which is why this stays opt-in even though a disabled rule
+  doesn't shape connectivity.
   - **Windows** — via WMI (`root/standardcimv2`'s `MSFT_NetFirewallRule`
     and its filter classes) or the PowerShell helper script
     (`Get-NetFirewallRule` and friends), both reading the *effective*
@@ -125,11 +198,11 @@ state:
   `String` a raw secret could occupy. No password auth path exists
   anywhere in this codebase, by construction, not by convention.
 
-See "Redaction" under "Operational contract" below for what happens to
-the opt-in sensitive fields (command line, executable path, service path,
-disabled firewall rules) once they're collected: redaction is
-unconditional and cannot be disabled from the CLI today, regardless of
-what a collector was told to include.
+See [Redaction](#redaction) below for what happens to the
+opt-in sensitive fields (command line, executable path, service path,
+disabled firewall rules) once they're collected: secret-scrubbing is
+unconditional and cannot be disabled from the CLI, regardless of which
+`--include-*` flags a scan was run with.
 
 ## Operational contract
 
@@ -149,17 +222,28 @@ unrelated meaning:
 
 ### Redaction
 
-Redaction is **always on** today. `domain/redaction.rs::redact` runs
-unconditionally wherever a `ReportModel` is built — there is currently no
-flag, CLI or otherwise, that disables it. A collected command line,
-connection string, or bearer token is stripped to a
-[`SecretCategory`](crates/anne-de-breuil/src/domain/redaction.rs) marker
-before it can reach any output format (JSON, CSV, SARIF, or the HTML
-report). This is the current shipped behaviour, not an aspiration —
-opt-in switches for specific sensitive fields
-(`RedactionPolicy::include_command_line` and friends, consumed by the
-Windows and Linux collector adapters) exist for a future `--include-*`
-CLI surface, but nothing wires them to an operator-facing flag yet.
+Two independent layers, easy to conflate but genuinely separate:
+
+1. **Collection-time inclusion** (`RedactionPolicy`, `application/collect.rs`)
+   — controls whether `command_line`/`executable_path`/`service_path`/
+   disabled firewall rules are captured **at all**. Off by default;
+   `anne scan --include-command-line --include-executable-path
+   --include-service-path --include-disabled-firewall-rules` opts in to
+   any subset. Every collector adapter on both platforms honours the same
+   flag identically — `PowerShellCollector`, `LinuxProcessResolver`, and
+   `WindowsProcessResolver` (the native Win32 fallback) all gate capture
+   behind the same `RedactionPolicy`, verified live against a real Windows
+   PowerShell 5.1 host, not just unit-tested.
+2. **Report-time secret scrubbing** (`domain/redaction.rs::redact`) — runs
+   unconditionally wherever a `ReportModel` is built, **regardless of
+   what `RedactionPolicy` collected**. There is no flag, CLI or otherwise,
+   that disables this layer. A collected command line, connection string,
+   or bearer token is stripped to a
+   [`SecretCategory`](crates/anne-de-breuil/src/domain/redaction.rs)
+   marker before it can reach any output format (JSON, CSV, SARIF, or the
+   HTML report). So opting in to `--include-command-line` gets you a real
+   command line in the raw snapshot JSON, with detected secrets already
+   redacted — never a raw, unredacted secret in any report.
 
 ### Host key verification
 
@@ -184,12 +268,13 @@ report` or persist yourself.
 
 ```bash
 $ anne scan --emit-json
-{"host_id":"2e96d2b0-...","scan_id":"61303baf-...","collected_at":[2026,233,21,43,53,145566000,0,0,0],"collector_version":"0.1.0","endpoints":[],"firewall_rules":[],"profiles":[],"strategy":"Execute"}
+{"host_id":"f7e66de4-5b0a-4549-a5f3-eca2578cb23d","scan_id":"8bc855d1-43e2-4294-bca2-8de629914ff7","collected_at":[2026,234,23,16,22,937065000,0,0,0],"collector_version":"0.2.0","endpoints":[],"firewall_rules":[],"profiles":[],"strategy":"Execute"}
 ```
 
 (Zero endpoints above because this was run on macOS, where no collector
-adapter is wired yet — see "What gets collected." The same command on
-Windows or Linux constructs the real platform collector.)
+adapter is wired yet — see [What gets collected](#what-gets-collected).
+The same command on Windows or Linux constructs the real platform
+collector.)
 
 Without `--emit-json`, `anne scan` persists the snapshot to the default
 `./anne-snapshots` store and prints a one-line summary instead:
@@ -197,6 +282,14 @@ Without `--emit-json`, `anne scan` persists the snapshot to the default
 ```bash
 $ anne scan
 scanned host 750671da-8aa1-48f2-a9a9-581e619755c3; snapshot 70eac046-7b13-4184-b166-6b6d81d2a9c0 persisted
+```
+
+Opting in to the collection-time redaction fields (see
+[Redaction](#redaction)):
+
+```bash
+anne scan --emit-json --include-executable-path --include-command-line \
+  --include-service-path --include-disabled-firewall-rules
 ```
 
 ### Remote fan-out against an inventory
@@ -269,6 +362,12 @@ $ ls split-out
 host-2e96d2b0-0ae0-4138-adba-8fb944e541e0.html  index.html
 ```
 
+The HTML report (monolithic or `--split`) carries a footer crediting and
+linking back to this repository — the only external `href` the report's
+own "zero external resource references" test set allows, since it's a
+plain navigation link a viewer can choose to follow, not something the
+document depends on fetching to render correctly.
+
 ### Comparing two scans
 
 ```bash
@@ -308,7 +407,8 @@ hosts = ["11111111-1111-1111-1111-111111111111"]
 
 ## Layout
 
-Two crates under `crates/`:
+Two crates under `crates/`, plus a `xtask` dev-tooling crate at the
+repository root:
 
 - `anne-de-breuil` — library crate. Hexagonal layout under `src/`:
   `domain/` (pure logic, no I/O), `ports/` (consumer-owned trait
@@ -316,6 +416,11 @@ Two crates under `crates/`:
   (implementations against the OS, PowerShell, SSH, SQLite, HTTP).
 - `anne-de-breuil-cli` — binary crate, ships the `anne` executable. Same
   four-module layout for CLI-local glue.
+- `xtask` — repository-local developer tasks (`cargo run -p xtask --
+  <task>`): `vendor-fonts`, `verify-static`, `checksum`, `build-windows`.
+  Never installs anything itself (no `cargo-xwin`, no rustup targets) —
+  every task assumes its own tools are already on `PATH`. See each
+  module's own doc comment for what it does.
 
 ## Toolchain
 
@@ -365,9 +470,22 @@ cargo install cargo-xwin
 cargo xwin check --target x86_64-pc-windows-msvc
 ```
 
+To produce and verify a real release-mode `anne.exe` locally (the same
+two steps `release.yml` runs as separate CI steps — cross-build, then
+confirm the CRT statically linked — wrapped into one command):
+
+```bash
+cargo run -p xtask -- build-windows
+```
+
+Requires `cargo-xwin` and `llvm-objdump` already on `PATH` (on macOS,
+`llvm-objdump` ships with the Xcode Command Line Tools at
+`/Library/Developer/CommandLineTools/usr/bin`, which isn't on `PATH` by
+default).
+
 This proves the cross-compile path works before any Windows-specific code
-exists, and lets `windows-collector`/`powershell-collector` work (T05/T06)
-be iterated on from macOS or Linux.
+exists, and lets `windows-collector`/`powershell-collector` work be
+iterated on from macOS or Linux.
 
 The native 3-OS CI matrix (ubuntu-latest, windows-latest, macos-latest) is
 separate from this cross-compiled path — it exists to actually exercise
@@ -387,11 +505,12 @@ workflow_run`) and re-derives the tag from the commit it ran against.
   (`target-feature=+crt-static` in `.cargo/config.toml`) so the collector
   starts on a bare host with neither Rust nor the Visual C++
   Redistributable installed. `cargo run -p xtask -- verify-static
-  <exe>` fails the build if `llvm-objdump -p` finds a dynamic
-  `VCRUNTIME*`/`MSVCP*` import. A real `windows-latest` runner then
-  executes the cross-built exe (`--version` plus `inventory validate`
-  against a committed fixture) — xwin's build only proves the exe links,
-  not that it runs.
+  <exe>` (or `cargo run -p xtask -- build-windows`, which chains both
+  steps for local dev) fails the build if `llvm-objdump -p` finds a
+  dynamic `VCRUNTIME*`/`MSVCP*` import. A real `windows-latest` runner
+  then executes the cross-built exe (`--version` plus `inventory
+  validate` against a committed fixture) — xwin's build only proves the
+  exe links, not that it runs.
 - **musl** (`x86_64`/`aarch64`) — built natively on `ubuntu-latest`,
   verified static via `ldd` (falls back to `readelf -d` if `ldd`'s wording
   ever drifts). This is the artifact pushed to remote hosts over SFTP.
@@ -402,7 +521,7 @@ workflow_run`) and re-derives the tag from the commit it ran against.
   every artifact into `SHA256SUMS.txt`, computed after signing so the
   published hash matches the bytes actually shipped. `checksum verify`
   re-hashes and compares — the mechanism the SSH transport's own
-  push-side integrity check (T15) mirrors.
+  push-side integrity check mirrors.
 - **Signing** — Windows binaries are Authenticode-signed via
   `osslsigncode` when `WINDOWS_CODESIGN_CERT`/`WINDOWS_CODESIGN_PASSWORD`
   repository secrets are configured. No certificate is configured for
@@ -464,3 +583,13 @@ documented step, deliberately kept out of any build script.
 Both font families are OFL 1.1. License texts are committed beside the
 binaries (`OFL-instrument-serif.txt`, `OFL-geist.txt`) and reproduced in
 full in `THIRD_PARTY_LICENSES.md` at the repository root.
+
+## License
+
+Dual-licensed under either of:
+
+- MIT license ([LICENSE-MIT](LICENSE-MIT))
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
+
+at your option. Third-party dependency and vendored-font licenses are
+reproduced in full in [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md).

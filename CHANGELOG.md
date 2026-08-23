@@ -12,6 +12,10 @@ Task identifiers (`T01`–`T32`) cross-reference the entries in
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.3.0] — 2026-08-22
+
 ### Added
 
 - **`anne update`** — checks GitHub Releases for a newer `anne` build and,
@@ -719,6 +723,7 @@ cut, so the version number isn't claimed twice. See
 [`PROGRESS.md`](PROGRESS.md) for the per-task index and `git log` for
 the commit-level detail.
 
-[Unreleased]: https://github.com/greysquirr3l/anne_de_breuil/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/greysquirr3l/anne_de_breuil/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/greysquirr3l/anne_de_breuil/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/greysquirr3l/anne_de_breuil/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/greysquirr3l/anne_de_breuil/releases/tag/v0.1.0

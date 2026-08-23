@@ -20,6 +20,7 @@ const REPORT_RS: &str = include_str!("../src/application/report.rs");
 const INVENTORY_RS: &str = include_str!("../src/application/inventory.rs");
 const VERSION_RS: &str = include_str!("../src/application/version.rs");
 const DIFF_RS: &str = include_str!("../src/application/diff.rs");
+const UPDATE_RS: &str = include_str!("../src/application/update.rs");
 
 /// Every port trait this workspace declares (`application/*.rs` across
 /// both crates) paired with at least one concrete adapter type that must
@@ -49,6 +50,7 @@ const PORT_TRAIT_ADAPTER_TABLE: &[(&str, &[&str])] = &[
         "EndpointSource/ProcessResolver/FirewallPolicySource/SignatureVerifier",
         &["collector_factory::local_collectors("],
     ),
+    ("ReleaseSource", &["GitHubReleaseSource"]),
 ];
 
 fn reachable_source() -> String {
@@ -59,6 +61,7 @@ fn reachable_source() -> String {
         INVENTORY_RS,
         VERSION_RS,
         DIFF_RS,
+        UPDATE_RS,
     ]
     .concat()
 }
@@ -85,7 +88,7 @@ fn every_port_trait_has_at_least_one_adapter_construction_site() {
 /// `-D warnings`/`non_exhaustive_omitted_patterns` to have caught it).
 #[test]
 fn every_cli_subcommand_variant_is_dispatched() {
-    let variants = ["Scan", "Diff", "Report", "Inventory", "Version"];
+    let variants = ["Scan", "Diff", "Report", "Inventory", "Version", "Update"];
     for variant in variants {
         assert!(
             CLI_RS.contains(&format!("{variant}("))
@@ -106,7 +109,7 @@ fn every_cli_subcommand_variant_is_dispatched() {
 /// wired into `application/mod.rs`'s module tree.
 #[test]
 fn every_handler_module_is_declared_reachable_from_lib_rs() {
-    for module in ["scan", "diff", "report", "inventory", "version"] {
+    for module in ["scan", "diff", "report", "inventory", "version", "update"] {
         assert!(
             LIB_RS.contains(&format!("application::{module}::run")),
             "application::{module}::run is never called from lib.rs::run()"

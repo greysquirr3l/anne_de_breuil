@@ -12,7 +12,40 @@ Task identifiers (`T01`–`T32`) cross-reference the entries in
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **`anne update`** — checks GitHub Releases for a newer `anne` build and,
+  with confirmation, downloads, checksum-verifies, and atomically
+  replaces the running executable. Never automatic: only runs on an
+  explicit invocation, and even then prompts `Update? [y/N]` unless
+  `--yes` is given; `--check` reports status only and never installs.
+  Checksum verification reuses
+  [`anne_de_breuil::adapters::binary_hash::hash_bytes`](crates/anne-de-breuil/src/adapters/binary_hash.rs)
+  — the same function `anne --self-hash` and the SSH push-side integrity
+  check already use — against the release's own `SHA256SUMS.txt`, and
+  aborts before touching the filesystem on any mismatch. ARM64 Windows
+  falls back to the x86_64 build (no native `aarch64-pc-windows-msvc`
+  release is published, a real `cargo-xwin`/`ring` cross-compile bug —
+  see "Release artifacts" in `README.md`); the x86_64 build runs fine
+  there under Windows 11 ARM64's built-in x64 emulation. Verified live
+  against the real GitHub API and the real `v0.2.0`/`v0.1.0` tags.
+  [`crates/anne-de-breuil-cli/src/application/update.rs`](crates/anne-de-breuil-cli/src/application/update.rs),
+  [`crates/anne-de-breuil-cli/src/adapters/github_release.rs`](crates/anne-de-breuil-cli/src/adapters/github_release.rs),
+  [`crates/anne-de-breuil-cli/src/ports/mod.rs`](crates/anne-de-breuil-cli/src/ports/mod.rs).
+
+### Fixed
+
+- **`Cargo.toml`'s `repository` field was a stale placeholder**
+  (`https://github.com/anne-de-breuil/anne-de-breuil`, predating this
+  repo's real location) — `anne update` reads it via
+  `env!("CARGO_PKG_REPOSITORY")` to know which GitHub repo to query, so
+  the fix is load-bearing for this release, not incidental cleanup. Now
+  `https://github.com/greysquirr3l/anne_de_breuil`.
+- **The `v0.2.0` README overhaul never actually reached `main`** — a race
+  between pushing that commit to the `release/v0.2.0` branch and the PR
+  being merged meant the merge captured an earlier point on the branch;
+  the commit (`533395c`) existed on the remote branch but had no path
+  into `main`'s history. Cherry-picked directly onto `main` once found.
 
 ## [0.2.0] — 2026-08-22
 

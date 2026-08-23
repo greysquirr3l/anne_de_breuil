@@ -8,7 +8,7 @@ edition = "2024"
 rust-version = "1.97.1"
 license = "MIT OR Apache-2.0"
 description = "Listening-port surface enumeration correlated with process, service, and firewall policy."
-repository = "https://github.com/anne-de-breuil/anne-de-breuil"
+repository = "https://github.com/greysquirr3l/anne_de_breuil"
 readme = "README.md"
 keywords = ["network", "security", "port-scanner", "firewall", "audit"]
 categories = ["command-line-utilities", "network-programming"]
@@ -40,6 +40,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"]
 assert_cmd = "2"
 predicates = "3"
 sha2 = "0.11.0"
+semver = "1"
 base64 = "0.23.1"
 blake3 = "1.8.6"
 rusqlite = { version = "0.40.2", features = ["bundled"] }

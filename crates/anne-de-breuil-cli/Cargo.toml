@@ -29,8 +29,17 @@ clap.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 time = { workspace = true }
+# `anne update`'s GitHub Releases client -- reqwest/semver aren't pulled
+# transitively into this crate from anne-de-breuil (that crate's own
+# reqwest usage, e.g. adapters::prober, isn't re-exported), so both are
+# direct dependencies here. `json` is added on top of the workspace
+# feature set (rustls-tls, stream) rather than added there, since nothing
+# else using the shared reqwest dependency needs it.
+reqwest = { workspace = true, features = ["json"] }
+semver.workspace = true
 
 [build-dependencies]
 # `set_build_env_var` re-runs the build script whenever HEAD moves, so the

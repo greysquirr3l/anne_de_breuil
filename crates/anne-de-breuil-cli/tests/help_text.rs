@@ -12,7 +12,7 @@ use predicates::prelude::*;
 
 #[test]
 fn every_subcommand_has_help_text() {
-    for sub in ["scan", "diff", "report", "inventory", "version"] {
+    for sub in ["scan", "diff", "report", "inventory", "version", "update"] {
         support::anne_cmd().args([sub, "--help"]).assert().success();
     }
 }

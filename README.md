@@ -405,6 +405,47 @@ secret_env = "ANNE_PORTAL_TOKEN_TEAM_A"
 hosts = ["11111111-1111-1111-1111-111111111111"]
 ```
 
+### Self-updating
+
+```bash
+anne update --check          # report whether a newer version exists; installs nothing
+anne update                  # fetch latest, show the version transition, prompt before installing
+anne update --yes             # same, no prompt (needed if stdin isn't a terminal -- otherwise this errors rather than hanging)
+anne update --version 0.1.0   # install a specific release instead of latest (e.g. to roll back)
+```
+
+Real output against the actual `v0.2.0` release on the platform this
+was run on:
+
+```bash
+$ anne update --check
+up to date (0.2.0)
+```
+
+Never automatic — only runs on an explicit `anne update` invocation, and
+even then always confirms before touching anything (`--check` never
+prompts or installs, regardless of `--yes`). Before any file is written,
+the downloaded binary is checksum-verified against the same release's
+`SHA256SUMS.txt`, using the exact same hashing function (`anne
+--self-hash` and the SSH push-side integrity check both use it too) — a
+mismatch aborts with nothing on disk touched.
+
+Two honest caveats, not glossed over:
+
+- **Windows binaries aren't code-signed today** (see
+  [Release artifacts](#release-artifacts)) — checksum verification is the
+  only integrity check available there, equivalent trust to a manual
+  download + checksum, not weaker, but not stronger either.
+- **No native `aarch64-pc-windows-msvc` release is published** (the same
+  `cargo-xwin`/`ring` cross-compile bug documented in
+  [Release artifacts](#release-artifacts)) — `anne update` on ARM64
+  Windows installs the x86_64 build instead, which runs fine under
+  Windows 11 ARM64's built-in x64 emulation.
+
+No release artifact exists for macOS — `anne update` (any subcommand,
+including `--check`) reports that plainly rather than pretending to find
+one.
+
 ## Layout
 
 Two crates under `crates/`, plus a `xtask` dev-tooling crate at the

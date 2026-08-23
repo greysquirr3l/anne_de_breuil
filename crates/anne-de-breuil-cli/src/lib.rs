@@ -43,5 +43,6 @@ pub async fn run(cli: Cli) -> Result<ExitCode> {
             cli::InventoryAction::Validate { path } => application::inventory::run_validate(&path),
         },
         cli::Command::Version => Ok(application::version::run()),
+        cli::Command::Update(args) => application::update::run(args).await,
     }
 }

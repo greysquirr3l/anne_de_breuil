@@ -84,6 +84,27 @@ pub enum Command {
     },
     /// Print the build version (semver + git SHA) and exit.
     Version,
+    /// Check GitHub Releases for a newer build and, with confirmation,
+    /// download, checksum-verify, and install it in place.
+    Update(UpdateArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct UpdateArgs {
+    /// Skip the confirmation prompt. Required if stdin isn't a terminal
+    /// (e.g. a script or cron job) -- otherwise the command errors out
+    /// rather than hanging on a prompt nothing will ever answer.
+    #[arg(long, short = 'y')]
+    pub yes: bool,
+    /// Report whether a newer version exists and exit; never prompts,
+    /// never installs, regardless of `--yes`.
+    #[arg(long)]
+    pub check: bool,
+    /// Install this specific version (e.g. `0.1.0`) instead of the
+    /// latest release -- also proceeds even if it's not newer than the
+    /// version currently running, supporting an intentional rollback.
+    #[arg(long, value_name = "VERSION")]
+    pub version: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]

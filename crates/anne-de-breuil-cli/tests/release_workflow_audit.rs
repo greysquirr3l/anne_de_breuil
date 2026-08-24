@@ -180,3 +180,114 @@ fn sbom_and_checksums_are_generated() {
     assert!(RELEASE_WORKFLOW.contains("cyclonedx"));
     assert!(RELEASE_WORKFLOW.contains("xtask -- checksum write"));
 }
+
+// ---------------------------------------------------------------------------
+// OSSF Scorecard / branch-protection companion artefacts.
+//
+// These three files exist together so that the OSSF Scorecard check
+// `Branch-Protection` (set on `main`) actually scores, and so the
+// companion checks `Dependency-Update-Tool` and `Code-Review` are
+// satisfied:
+//
+//   - `.github/CODEOWNERS` makes `require_code_owner_reviews` (a branch
+//     protection rule on `main`) do something: without it the rule is a
+//     no-op and the Scorecard's Branch-Protection score drops a tier.
+//
+//   - `.github/dependabot.yml` is the Dependency-Update-Tool check —
+//     Scorecard scans the file system for a manifest under
+//     `.github/dependabot.{yml,yaml}`.
+//
+//   - `.github/workflows/scorecard.yml` is the continuously-running
+//     auditor that publishes Scorecard SARIF to the Code Scanning tab.
+//
+// They're all `include_str!`'d at compile time so any future removal
+// (or rename) of the files fails `cargo test`, not just a manual read
+// of the YAML.
+// ---------------------------------------------------------------------------
+
+const CODEOWNERS: &str = include_str!("../../../.github/CODEOWNERS");
+const DEPENDABOT_CONFIG: &str = include_str!("../../../.github/dependabot.yml");
+const SCORECARD_WORKFLOW: &str = include_str!("../../../.github/workflows/scorecard.yml");
+
+/// Without a `CODEOWNERS` file, the `require_code_owner_reviews` rule on
+/// `main` is a no-op — GitHub matches no path, no approval is required
+/// from anyone in particular, and the OSSF Branch-Protection score drops
+/// a tier for it. The file must (a) exist, (b) list an owner, and (c)
+/// cover the security-critical workflow surface so a future split-owner
+/// edit has somewhere to land.
+#[test]
+fn codeowners_file_exists_and_covers_security_critical_paths() {
+    assert!(
+        CODEOWNERS.contains("@greysquirr3l"),
+        "CODEOWNERS must list at least one GitHub user/team handle"
+    );
+    for path in [
+        ".github/workflows/release.yml",
+        ".github/workflows/scorecard.yml",
+        ".github/dependabot.yml",
+        ".github/CODEOWNERS",
+    ] {
+        assert!(
+            CODEOWNERS.contains(path),
+            "CODEOWNERS must explicitly own `{path}` so security-critical \
+             changes always surface a code-owner review"
+        );
+    }
+}
+
+/// Scorecard's `Dependency-Update-Tool` check looks specifically for a
+/// `.github/dependabot.{yml,yaml}` manifest. Two ecosystems here because
+/// only those have lockfiles / catalog data that the release SBOM
+/// (T29, `syft dir:.` against `Cargo.lock`) and the supply-chain
+/// catalogues actually scan.
+#[test]
+fn dependabot_covers_cargo_and_github_actions_ecosystems() {
+    assert!(
+        DEPENDABOT_CONFIG.contains("package-ecosystem: \"cargo\""),
+        "Dependabot must cover the cargo ecosystem so Cargo.lock updates \
+         match the SBOM source-of-truth"
+    );
+    assert!(
+        DEPENDABOT_CONFIG.contains("package-ecosystem: \"github-actions\""),
+        "Dependabot must cover the github-actions ecosystem so workflow \
+         updates land as reviewable PRs"
+    );
+}
+
+/// The Scorecard workflow must (a) pin its action by SHA
+/// (Pinned-Dependencies is itself a Scorecard check), (b) declare an
+/// explicit `permissions:` block (Token-Permissions), and (c) publish
+/// SARIF results to the Code Scanning tab.
+#[test]
+fn scorecard_workflow_is_pinned_explicit_and_publishes_sarif() {
+    assert!(
+        SCORECARD_WORKFLOW.contains("uses: ossf/scorecard-action@"),
+        "scorecard.yml must invoke ossf/scorecard-action"
+    );
+    // SHA-pinned — the ref must look like 40-hex chars, not a tag. Pinned
+    // to v2.4.4 (commit 2d1146689b8cda280b9bc96326124645441f03bc, "Bump
+    // action tag for v2.4.4 release #1688", annotated tag dated
+    // 2026-07-23); the test pins the literal SHA so a tag-ref mistake in
+    // the workflow file surfaces as a compile-time failure rather than a
+    // runtime surprise.
+    assert!(
+        SCORECARD_WORKFLOW
+            .contains("uses: ossf/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc"),
+        "scorecard.yml must pin the action to a full commit SHA — tag refs \
+         are exactly what the Pinned-Dependencies Scorecard check penalises"
+    );
+    assert!(
+        SCORECARD_WORKFLOW.contains("permissions:"),
+        "scorecard.yml must declare an explicit top-level `permissions:` \
+         block so the Token-Permissions Scorecard check recognises the \
+         least-privilege posture"
+    );
+    assert!(
+        SCORECARD_WORKFLOW.contains("publish_results: true"),
+        "scorecard.yml must publish SARIF to the Code Scanning tab"
+    );
+    assert!(
+        SCORECARD_WORKFLOW.contains("results_format: sarif"),
+        "scorecard.yml must emit SARIF (the format Code Scanning ingests)"
+    );
+}

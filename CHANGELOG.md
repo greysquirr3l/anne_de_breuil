@@ -12,7 +12,25 @@ Task identifiers (`T01`–`T32`) cross-reference the entries in
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- **HTML report is dark mode only** — removed the light/dark theme
+  toggle (`<input type="checkbox" id="theme-toggle">`) and the
+  `@media (prefers-color-scheme: dark)` OS-preference query from
+  `tokens.css` and every report template
+  (`report.html`/`host_document.html`/`split_index.html`/
+  `portal_index.html`). The unstyled checkbox rendered as a visible,
+  out-of-place control right before the `<h1>`; the single remaining
+  dark palette is now just `:root`'s only definition, no override
+  mechanism needed.
+- **Removed the per-host scroll-reveal fade** (`.host-section {
+  animation: host-reveal ...; animation-timeline: view(); }`) — a
+  section faded in from `opacity: 0` as it scrolled into view, which
+  read as an adaptive-dimming effect that made a long report harder to
+  read while scrolling, not easier. The reading-progress bar at the top
+  of the page (`.reading-progress`, `animation-timeline:
+  scroll(root)`) is unrelated and unchanged.
+  [`crates/anne-de-breuil/templates/tokens.css`](crates/anne-de-breuil/templates/tokens.css).
 
 ## [0.3.0] — 2026-08-22
 

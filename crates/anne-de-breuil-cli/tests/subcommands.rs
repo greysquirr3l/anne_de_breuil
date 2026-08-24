@@ -202,7 +202,7 @@ fn report_format_html_renders_a_self_contained_document() {
     let html = String::from_utf8_lossy(&output.stdout);
     assert!(html.starts_with("<!doctype html>"));
     assert!(html.contains("Content-Security-Policy"));
-    assert!(html.contains("--paper: #f5f5f4"));
+    assert!(html.contains("--paper: #16171a"));
     assert!(html.contains("base64,"), "default --fonts is embed");
     for pattern in ["src=\"http", "url(http"] {
         assert!(

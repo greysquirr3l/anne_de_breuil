@@ -1,0 +1,66 @@
+# Dependabot configuration — kept minimal and grouped to reduce PR noise.
+# Two ecosystems only because those are the only ones whose lockfiles the
+# release pipeline actually scans (T29: `syft dir:.` against `Cargo.lock`
+# is the source of the published CycloneDX SBOM, and `ci.yml` /
+# `release.yml` / `scorecard.yml` are the third-party Actions GitHub's
+# supply-chain features catalogue).
+#
+# Cargo: weekly, with minor/patch grouped into one PR per Cargo group.
+#   The `cargo` ecosystem here resolves the actual workspace dependencies,
+#   which is what the SBOM tracks — keeping this up to date is the
+#   primary mitigation for new advisories landing between releases.
+#
+# github-actions: weekly, grouped by major-version bucket so a breaking
+#   release of, say, `actions/checkout` doesn't drown out routine patch
+#   updates of `github/codeql-action`.
+#
+# Both ecosystems are on a Monday schedule (lowest-traffic day for the
+# release workflow that tags on tagged commits) and explicitly opt out of
+# `target-branch` inheritance so a future protected-branches change
+# can't silently flip PRs to a feature branch.
+
+version: 2
+
+updates:
+- package-ecosystem: "cargo"
+  directory: "/"
+  target-branch: "main"
+  schedule:
+    interval: "weekly"
+    day: "monday"
+    time: "06:00"
+    timezone: "UTC"
+  groups:
+    cargo-direct-dependencies:
+      dependency-type: "direct"
+    cargo-transitive-dependencies:
+      dependency-type: "indirect"
+  labels:
+  - "dependencies"
+  - "cargo"
+  commit-message:
+    prefix: "chore(deps)"
+    include: "scope"
+
+- package-ecosystem: "github-actions"
+  directory: "/"
+  target-branch: "main"
+  schedule:
+    interval: "weekly"
+    day: "monday"
+    time: "06:00"
+    timezone: "UTC"
+  groups:
+    actions-major-bumps:
+      update-types:
+      - "major"
+    actions-minor-and-patch:
+      update-types:
+      - "minor"
+      - "patch"
+  labels:
+  - "dependencies"
+  - "github-actions"
+  commit-message:
+    prefix: "ci(dependabot)"
+    include: "scope"

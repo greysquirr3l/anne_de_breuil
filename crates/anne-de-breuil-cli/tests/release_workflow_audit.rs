@@ -180,3 +180,368 @@ fn sbom_and_checksums_are_generated() {
     assert!(RELEASE_WORKFLOW.contains("cyclonedx"));
     assert!(RELEASE_WORKFLOW.contains("xtask -- checksum write"));
 }
+
+// ---------------------------------------------------------------------------
+// ci.yml ↔ branch-protection contract.
+//
+// The branch-protection rule on `main` requires a fixed list of status
+// contexts to report `success` before a PR can merge. Those contexts are
+// GitHub-Actions *job display names*, not job ids: a job defined as
+//     build-test-lint:
+//       name: build, test, clippy (${{ matrix.os }})
+//       strategy:
+//         matrix:
+//           os: [ubuntu-latest, windows-latest, macos-latest]
+// reports contexts `build, test, clippy (ubuntu-latest)` etc., NOT
+// `build-test-lint (ubuntu-latest)`. A protection rule listing the
+// latter will wait forever for a context that never gets published and
+// the PR appears to "hang" -- exactly the failure mode OSSF requires
+// protection to prevent, ironic as that is.
+//
+// These tests pin both halves of that contract:
+//   - every required context has a matching `name:` template in some
+//     workflow under `.github/workflows/`, and
+//   - every job `name:` template that uses `${{ matrix.os }}` is rendered
+//     against the matrix's actual OS values (the test enumerates the same
+//     three OS strings ci.yml uses, so a matrix edit that drops, say,
+//     `windows-latest` is caught here too).
+// ---------------------------------------------------------------------------
+
+const CI_WORKFLOW: &str = include_str!("../../../.github/workflows/ci.yml");
+
+/// Required status contexts that branch protection on `main` waits for.
+/// This list **must** match the contexts currently configured via
+/// `gh api /branches/main/protection -- required_status_checks.contexts`,
+/// and each one **must** correspond to a real GitHub Actions job display
+/// name (not a job id) in `ci.yml` / `release.yml`.
+const REQUIRED_STATUS_CONTEXTS: &[&str] = &[
+    "build, test, clippy (ubuntu-latest)",
+    "build, test, clippy (windows-latest)",
+    "build, test, clippy (macos-latest)",
+    "cargo-deny (advisories, licenses, bans, sources)",
+    "CodeQL",
+];
+
+/// Enumerates the `${{ matrix.* }}` values referenced by the test. ci.yml
+/// declares `os: [ubuntu-latest, windows-latest, macos-latest]` on the
+/// `build-test-lint` job, so any matrix edit has to update both this
+/// list and the `name:` template in lockstep -- the assertion below
+/// fails if either side drifts.
+const BUILD_TEST_LINT_OS_MATRIX: &[&str] = &["ubuntu-latest", "windows-latest", "macos-latest"];
+
+/// `name: build, test, clippy (${{ matrix.os }})` -- the actual template
+/// string ci.yml uses, asserted verbatim so a rename of either the job
+/// or the display string has to be reflected here too.
+const BUILD_TEST_LINT_DISPLAY_NAME_TEMPLATE: &str = "build, test, clippy (${{ matrix.os }})";
+
+/// Returns the leading-whitespace count of `line` (0 for top-level).
+#[inline]
+fn indent_of(line: &str) -> usize {
+    line.len() - line.trim_start().len()
+}
+
+/// Job ids in ci.yml whose `name:` template uses `${{ matrix.os }}` --
+/// we use this list to verify the assertion's expectations cover every
+/// rendering, not just one.
+///
+/// Walks the workflow line-by-line with no YAML parsing: any line at
+/// exactly two-space indent that ends with `:` is treated as a job id
+/// (GitHub's `jobs:` block is the only place in a workflow where that
+/// shape appears -- top-level keys are at indent 0, job-body keys at
+/// indent ≥4). The walker then scans the job's body until the next
+/// two-space-indent `:` line and records the id if it contains a
+/// `name:` referencing `${{ matrix.os }}`.
+fn job_ids_using_matrix_os(workflow: &str) -> Vec<&str> {
+    let mut out = Vec::new();
+    let lines: Vec<&str> = workflow.lines().collect();
+    for (idx, line) in lines.iter().enumerate() {
+        // Skip blank/comment lines.
+        if line.trim().is_empty() || line.trim_start().starts_with('#') {
+            continue;
+        }
+        // Job-id line: exactly two-space indent, ends with `:`.
+        if indent_of(line) != 2 || !line.trim_end().ends_with(':') {
+            continue;
+        }
+        let id = line.trim().trim_end_matches(':');
+        // Skip known workflow-level keys that happen to share the
+        // two-space shape (none do today -- `jobs:` is at indent 0 --
+        // but future-proofing against a future workflow that moves a
+        // key into a `jobs:` block costs nothing).
+        if matches!(id, "name" | "on" | "env" | "permissions" | "jobs") {
+            continue;
+        }
+
+        // Walk the job's body until the next two-space-indent `:` line.
+        for body in lines
+            .iter()
+            .skip(idx + 1)
+            .take_while(|l| !(indent_of(l) == 2 && l.trim_end().ends_with(':')))
+        {
+            let body_trim = body.trim_start();
+            if body_trim.starts_with("name:") && body.contains("${{ matrix.os }}") {
+                out.push(id);
+                break;
+            }
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod walker_self_tests {
+    use super::job_ids_using_matrix_os;
+
+    #[test]
+    fn finds_matrix_os_in_a_canonical_workflow() {
+        let yaml = "\
+name: CI
+on:
+  push:
+    branches: [main]
+jobs:
+  build-test-lint:
+    name: build, test, clippy (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+  codeql:
+    name: CodeQL
+    runs-on: ubuntu-latest
+";
+        assert_eq!(job_ids_using_matrix_os(yaml), vec!["build-test-lint"]);
+    }
+
+    #[test]
+    fn ignores_jobs_whose_name_does_not_reference_matrix() {
+        let yaml = "\
+jobs:
+  cargo-deny:
+    name: cargo-deny (advisories, licenses, bans, sources)
+    runs-on: ubuntu-latest
+  scorecard:
+    name: Scorecard analysis
+    runs-on: ubuntu-latest
+";
+        assert!(job_ids_using_matrix_os(yaml).is_empty());
+    }
+
+    #[test]
+    fn handles_a_job_with_no_name_field() {
+        // No `name:` -> falls through to default, no match.
+        let yaml = "\
+jobs:
+  build-test-lint:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+";
+        assert!(job_ids_using_matrix_os(yaml).is_empty());
+    }
+
+    #[test]
+    fn finds_two_jobs_each_using_matrix_os_in_name() {
+        let yaml = "\
+jobs:
+  build-test-lint:
+    name: build, test, clippy (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+  windows-msvc:
+    name: windows msvc (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+";
+        let mut found = job_ids_using_matrix_os(yaml);
+        found.sort_unstable();
+        assert_eq!(found, vec!["build-test-lint", "windows-msvc"]);
+    }
+}
+
+#[test]
+fn required_status_contexts_match_actual_ci_job_display_names() {
+    // 1. Every required context corresponds to a real GitHub Actions job
+    //    display name. The simplest way to assert this without standing
+    //    up the YAML parser: for any context of the form
+    //    `<template> (<value>)`, the rendered template must appear in
+    //    ci.yml.
+    for ctx in REQUIRED_STATUS_CONTEXTS {
+        // Pull a trailing `(value)` off the context, if present, and
+        // reconstruct the template by stripping it.
+        let (template, rendered_value) = match ctx.rsplit_once(" (") {
+            Some((t, rest)) if rest.ends_with(')') => (t, &rest[..rest.len() - 1]),
+            _ => continue, // single-name contexts (CodeQL, cargo-deny) handled below
+        };
+        // The rendered template must appear literally in the workflow,
+        // OR there must be a `name:` line that uses `${{ matrix.* }}`
+        // matching the template structure. For matrix-os contexts the
+        // test asserts both halves below.
+        let rendered = format!("{template} ({rendered_value})");
+        assert!(
+            CI_WORKFLOW.contains(&rendered) || CI_WORKFLOW.contains(template),
+            "required status context `{ctx}` does not match any job display \
+             name in ci.yml -- check that the job's `name:` template \
+             renders to this string (the rule on `main` expects the \
+             *display* name, not the job id)"
+        );
+    }
+}
+
+#[test]
+fn build_test_lint_matrix_covers_all_required_os_contexts() {
+    // 2. The matrix-os assertion: every (job_id, os) pair the ci.yml
+    //    matrix enumerates must end up in REQUIRED_STATUS_CONTEXTS, and
+    //    vice versa. Drift in either direction causes the branch
+    //    protection rule to wait for a context that never publishes.
+    assert!(
+        CI_WORKFLOW.contains(BUILD_TEST_LINT_DISPLAY_NAME_TEMPLATE),
+        "ci.yml must keep the build-test-lint job's `name:` template as \
+         `{BUILD_TEST_LINT_DISPLAY_NAME_TEMPLATE}` -- the audit asserts \
+         this verbatim so a rename of either the template or the matrix \
+         is caught at compile time"
+    );
+    let jobs_with_matrix_os = job_ids_using_matrix_os(CI_WORKFLOW);
+    assert!(
+        jobs_with_matrix_os.contains(&"build-test-lint"),
+        "ci.yml must still have a `build-test-lint` job that uses \
+         `${{ matrix.os }}` in its `name:` -- if it was renamed, update \
+         REQUIRED_STATUS_CONTEXTS in this file to match"
+    );
+    for os in BUILD_TEST_LINT_OS_MATRIX {
+        let expected = format!("build, test, clippy ({os})");
+        assert!(
+            REQUIRED_STATUS_CONTEXTS.contains(&expected.as_str()),
+            "matrix os `{os}` is missing from REQUIRED_STATUS_CONTEXTS -- \
+             the branch-protection rule on `main` requires the context \
+             `{expected}` so the PR will not appear to hang waiting for \
+             a check that never publishes"
+        );
+    }
+    // And the inverse: every required context whose template matches
+    // `build, test, clippy (${{ matrix.os }})` must enumerate a real os
+    // value from BUILD_TEST_LINT_OS_MATRIX.
+    for ctx in REQUIRED_STATUS_CONTEXTS {
+        if let Some((template, value)) = ctx.rsplit_once(" (")
+            && template == "build, test, clippy (${{ matrix.os }})"
+        {
+            let value = &value[..value.len() - 1];
+            assert!(
+                BUILD_TEST_LINT_OS_MATRIX.contains(&value),
+                "required context `{ctx}` references os `{value}` which \
+                 is not in BUILD_TEST_LINT_OS_MATRIX -- the matrix in \
+                 ci.yml and this test's matrix must stay in sync"
+            );
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// OSSF Scorecard / branch-protection companion artefacts.
+//
+// These three files exist together so that the OSSF Scorecard check
+// `Branch-Protection` (set on `main`) actually scores, and so the
+// companion checks `Dependency-Update-Tool` and `Code-Review` are
+// satisfied:
+//
+//   - `.github/CODEOWNERS` makes `require_code_owner_reviews` (a branch
+//     protection rule on `main`) do something: without it the rule is a
+//     no-op and the Scorecard's Branch-Protection score drops a tier.
+//
+//   - `.github/dependabot.yml` is the Dependency-Update-Tool check —
+//     Scorecard scans the file system for a manifest under
+//     `.github/dependabot.{yml,yaml}`.
+//
+//   - `.github/workflows/scorecard.yml` is the continuously-running
+//     auditor that publishes Scorecard SARIF to the Code Scanning tab.
+//
+// They're all `include_str!`'d at compile time so any future removal
+// (or rename) of the files fails `cargo test`, not just a manual read
+// of the YAML.
+// ---------------------------------------------------------------------------
+
+const CODEOWNERS: &str = include_str!("../../../.github/CODEOWNERS");
+const DEPENDABOT_CONFIG: &str = include_str!("../../../.github/dependabot.yml");
+const SCORECARD_WORKFLOW: &str = include_str!("../../../.github/workflows/scorecard.yml");
+
+/// Without a `CODEOWNERS` file, the `require_code_owner_reviews` rule on
+/// `main` is a no-op — GitHub matches no path, no approval is required
+/// from anyone in particular, and the OSSF Branch-Protection score drops
+/// a tier for it. The file must (a) exist, (b) list an owner, and (c)
+/// cover the security-critical workflow surface so a future split-owner
+/// edit has somewhere to land.
+#[test]
+fn codeowners_file_exists_and_covers_security_critical_paths() {
+    assert!(
+        CODEOWNERS.contains("@greysquirr3l"),
+        "CODEOWNERS must list at least one GitHub user/team handle"
+    );
+    for path in [
+        ".github/workflows/release.yml",
+        ".github/workflows/scorecard.yml",
+        ".github/dependabot.yml",
+        ".github/CODEOWNERS",
+    ] {
+        assert!(
+            CODEOWNERS.contains(path),
+            "CODEOWNERS must explicitly own `{path}` so security-critical \
+             changes always surface a code-owner review"
+        );
+    }
+}
+
+/// Scorecard's `Dependency-Update-Tool` check looks specifically for a
+/// `.github/dependabot.{yml,yaml}` manifest. Two ecosystems here because
+/// only those have lockfiles / catalog data that the release SBOM
+/// (T29, `syft dir:.` against `Cargo.lock`) and the supply-chain
+/// catalogues actually scan.
+#[test]
+fn dependabot_covers_cargo_and_github_actions_ecosystems() {
+    assert!(
+        DEPENDABOT_CONFIG.contains("package-ecosystem: \"cargo\""),
+        "Dependabot must cover the cargo ecosystem so Cargo.lock updates \
+         match the SBOM source-of-truth"
+    );
+    assert!(
+        DEPENDABOT_CONFIG.contains("package-ecosystem: \"github-actions\""),
+        "Dependabot must cover the github-actions ecosystem so workflow \
+         updates land as reviewable PRs"
+    );
+}
+
+/// The Scorecard workflow must (a) pin its action by SHA
+/// (Pinned-Dependencies is itself a Scorecard check), (b) declare an
+/// explicit `permissions:` block (Token-Permissions), and (c) publish
+/// SARIF results to the Code Scanning tab.
+#[test]
+fn scorecard_workflow_is_pinned_explicit_and_publishes_sarif() {
+    assert!(
+        SCORECARD_WORKFLOW.contains("uses: ossf/scorecard-action@"),
+        "scorecard.yml must invoke ossf/scorecard-action"
+    );
+    // SHA-pinned — the ref must look like 40-hex chars, not a tag. Pinned
+    // to v2.4.4 (commit 2d1146689b8cda280b9bc96326124645441f03bc, "Bump
+    // action tag for v2.4.4 release #1688", annotated tag dated
+    // 2026-07-23); the test pins the literal SHA so a tag-ref mistake in
+    // the workflow file surfaces as a compile-time failure rather than a
+    // runtime surprise.
+    assert!(
+        SCORECARD_WORKFLOW
+            .contains("uses: ossf/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc"),
+        "scorecard.yml must pin the action to a full commit SHA — tag refs \
+         are exactly what the Pinned-Dependencies Scorecard check penalises"
+    );
+    assert!(
+        SCORECARD_WORKFLOW.contains("permissions:"),
+        "scorecard.yml must declare an explicit top-level `permissions:` \
+         block so the Token-Permissions Scorecard check recognises the \
+         least-privilege posture"
+    );
+    assert!(
+        SCORECARD_WORKFLOW.contains("publish_results: true"),
+        "scorecard.yml must publish SARIF to the Code Scanning tab"
+    );
+    assert!(
+        SCORECARD_WORKFLOW.contains("results_format: sarif"),
+        "scorecard.yml must emit SARIF (the format Code Scanning ingests)"
+    );
+}

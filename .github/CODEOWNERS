@@ -1,0 +1,32 @@
+# CODEOWNERS — paired with `require_code_owner_reviews` on the `main`
+# branch-protection rule. GitHub resolves this file by walking the
+# repository from the changed file up to the root and taking the **last**
+# matching pattern, so order matters: put more-specific patterns after
+# less-specific ones. A reviewer approval from any listed owner satisfies
+# the rule for a PR.
+#
+# Single-owner project today: every path defaults to @greysquirr3l. The
+# security-critical sections below repeat @greysquirr3l explicitly so
+# future reviewers see them highlighted in the PR Owners panel rather
+# than collapsing into the default fallback line, and so that splitting a
+# path out into its own rule later is a one-line edit instead of a hunt.
+
+# Default — every path is owned by the project owner.
+/*    @greysquirr3l
+
+# Security-critical surface — release pipeline, SBOM, branch protection
+# automation, signing, and security policy. Reviewed by @greysquirr3l
+# (same owner today; this block exists so the rule is explicit and
+# greppable if a second owner is ever added for these areas).
+/.github/workflows/release.yml           @greysquirr3l
+/.github/workflows/scorecard.yml         @greysquirr3l
+/.github/dependabot.yml                  @greysquirr3l
+/.github/CODEOWNERS                      @greysquirr3l
+/docs/security-audit.md                  @greysquirr3l
+/SECURITY.md                             @greysquirr3l
+
+# Cryptographic / supply-chain configuration — Rust toolchain pin, deny
+# license/advisory policy, and Cargo's own lockfile.
+/rust-toolchain.toml                     @greysquirr3l
+/deny.toml                               @greysquirr3l
+/Cargo.lock                              @greysquirr3l

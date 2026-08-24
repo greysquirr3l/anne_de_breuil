@@ -12,7 +12,44 @@ Task identifiers (`T01`–`T32`) cross-reference the entries in
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **`Justfile`** — wraps the build/test/lint/audit commands already
+  documented in `README.md`'s "Build, test, lint" section, every `xtask`
+  task, and a local release build (`release-windows`, `release-musl-*`,
+  `release-checksums`) that mirrors `release.yml`'s own per-target steps
+  into a gitignored `./dist/`. `just build-windows` is the
+  `cargo run -p xtask -- build-windows` call from "Cross-compilation".
+  `just bump-version <version>` updates `Cargo.toml`'s two version pins
+  and refreshes `Cargo.lock`; it deliberately does not touch
+  `CHANGELOG.md` — moving `[Unreleased]` into a dated section is a
+  judgment call about what actually shipped. Entirely optional: every
+  recipe is a thin wrapper over a command this file already ran directly,
+  nothing here is required to build, test, or release the project.
+  Shebang recipes shellcheck clean.
+  [`Justfile`](Justfile).
+
+## [0.3.1] — 2026-08-24
+
+### Changed
+
+- **HTML report is dark mode only** — removed the light/dark theme
+  toggle (`<input type="checkbox" id="theme-toggle">`) and the
+  `@media (prefers-color-scheme: dark)` OS-preference query from
+  `tokens.css` and every report template
+  (`report.html`/`host_document.html`/`split_index.html`/
+  `portal_index.html`). The unstyled checkbox rendered as a visible,
+  out-of-place control right before the `<h1>`; the single remaining
+  dark palette is now just `:root`'s only definition, no override
+  mechanism needed.
+- **Removed the per-host scroll-reveal fade** (`.host-section {
+  animation: host-reveal ...; animation-timeline: view(); }`) — a
+  section faded in from `opacity: 0` as it scrolled into view, which
+  read as an adaptive-dimming effect that made a long report harder to
+  read while scrolling, not easier. The reading-progress bar at the top
+  of the page (`.reading-progress`, `animation-timeline:
+  scroll(root)`) is unrelated and unchanged.
+  [`crates/anne-de-breuil/templates/tokens.css`](crates/anne-de-breuil/templates/tokens.css).
 
 ## [0.3.0] — 2026-08-22
 
@@ -723,7 +760,8 @@ cut, so the version number isn't claimed twice. See
 [`PROGRESS.md`](PROGRESS.md) for the per-task index and `git log` for
 the commit-level detail.
 
-[Unreleased]: https://github.com/greysquirr3l/anne_de_breuil/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/greysquirr3l/anne_de_breuil/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/greysquirr3l/anne_de_breuil/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/greysquirr3l/anne_de_breuil/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/greysquirr3l/anne_de_breuil/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/greysquirr3l/anne_de_breuil/releases/tag/v0.1.0

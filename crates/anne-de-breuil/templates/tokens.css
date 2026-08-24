@@ -1,11 +1,13 @@
+/* Dark mode only, no toggle, no OS-preference query -- one palette,
+   always. */
 :root {
-  color-scheme: light dark;
-  --paper: #f5f5f4;
-  --paper-2: #ececea;
-  --ink: #111111;
+  color-scheme: dark;
+  --paper: #16171a;
+  --paper-2: #1e2024;
+  --ink: #ececea;
   --muted: #4b5a6b;
   --accent: #c4432b;
-  --hairline: #c7c7c5;
+  --hairline: #33363c;
   --link: #2a5db0;
 
   --exposure-loopback: #4b5a6b;
@@ -22,33 +24,6 @@
   --font-sans: ui-sans-serif, system-ui, sans-serif;
   --font-mono: ui-monospace, "SFMono-Regular", monospace;
 {% endmatch %}
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --paper: #16171a;
-    --paper-2: #1e2024;
-    --ink: #ececea;
-    --hairline: #33363c;
-  }
-}
-
-/* Manual override, zero JavaScript, works from file://. `:has()` lets a
-   checked checkbox anywhere inside <html> re-target :root itself, which
-   is what actually forces the dark values regardless of OS preference --
-   the task sketch's `#theme-toggle:checked ~ * { color-scheme: dark; }`
-   alone does not do this: the `color-scheme` property only hints native
-   form-control/scrollbar rendering, it does not change which
-   `prefers-color-scheme` media query matches, so it can't move --paper/
-   --ink on its own. Redefining the custom properties directly here is
-   the part that actually does the work; `color-scheme: dark` is kept
-   alongside it purely for the native-chrome hint the sketch wanted. */
-:root:has(#theme-toggle:checked) {
-  --paper: #16171a;
-  --paper-2: #1e2024;
-  --ink: #ececea;
-  --hairline: #33363c;
-  color-scheme: dark;
 }
 
 {% match fonts_mode %}
@@ -167,12 +142,15 @@ a {
   stroke-dasharray: 4 4;
 }
 
-/* Reading-progress bar and section-reveal animations: opt-in only when the
-   visitor hasn't asked for reduced motion. Every rule referencing
-   animation-timeline anywhere in this file lives inside this one query --
-   pinned by the `every_scroll_driven_animation_wrapped_in_reduced_motion_
-   query` test, which parses the real rendered stylesheet rather than
-   trusting this comment. */
+/* Reading-progress bar: opt-in only when the visitor hasn't asked for
+   reduced motion. Every rule referencing animation-timeline anywhere in
+   this file lives inside this one query -- pinned by the
+   `every_scroll_driven_animation_wrapped_in_reduced_motion_query` test,
+   which parses the real rendered stylesheet rather than trusting this
+   comment. (The section-reveal fade-in that used to live here as well --
+   `.host-section { animation: host-reveal ...; animation-timeline: view();
+   }` -- was removed: it read as an adaptive-dimming effect that made
+   scrolling through a report harder to read, not easier.) */
 @media (prefers-reduced-motion: no-preference) {
   .reading-progress {
     position: fixed;
@@ -194,23 +172,6 @@ a {
     }
     to {
       transform: scaleX(1);
-    }
-  }
-
-  .host-section {
-    animation: host-reveal linear both;
-    animation-timeline: view();
-    animation-range: entry 0% cover 30%;
-  }
-
-  @keyframes host-reveal {
-    from {
-      opacity: 0;
-      transform: translateY(12px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
     }
   }
 }
@@ -492,9 +453,7 @@ table.drift-table td {
    overridden). */
 @media print {
   .reading-progress,
-  .sort-controls,
-  label[for="theme-toggle"],
-  #theme-toggle {
+  .sort-controls {
     display: none;
   }
 

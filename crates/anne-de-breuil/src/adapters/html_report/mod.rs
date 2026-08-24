@@ -726,10 +726,24 @@ mod tests {
 
     #[test]
     fn token_root_block_is_present() {
+        // Dark mode only, no toggle -- these are the sole --paper/--ink
+        // values in the stylesheet now, not a light default overridden
+        // elsewhere.
         let html = render(&sample_model(), FontsMode::Embed).expect("renders");
         let css = extract_style_block(&html);
-        assert!(css.contains("--paper: #f5f5f4"));
-        assert!(css.contains("--ink: #111111"));
+        assert!(css.contains("--paper: #16171a"));
+        assert!(css.contains("--ink: #ececea"));
+    }
+
+    #[test]
+    fn no_theme_toggle_or_prefers_color_scheme_remains() {
+        // The manual light/dark toggle and the OS-preference query were
+        // both removed -- the report is dark mode only now. A stray
+        // checkbox is exactly the "errant checkbox before the title" bug
+        // this test exists to catch a regression of.
+        let html = render(&sample_model(), FontsMode::Embed).expect("renders");
+        assert!(!html.contains("theme-toggle"));
+        assert!(!html.contains("prefers-color-scheme"));
     }
 
     #[test]

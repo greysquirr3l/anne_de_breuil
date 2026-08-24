@@ -12,7 +12,22 @@ Task identifiers (`T01`–`T32`) cross-reference the entries in
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **`Justfile`** — wraps the build/test/lint/audit commands already
+  documented in `README.md`'s "Build, test, lint" section, every `xtask`
+  task, and a local release build (`release-windows`, `release-musl-*`,
+  `release-checksums`) that mirrors `release.yml`'s own per-target steps
+  into a gitignored `./dist/`. `just build-windows` is the
+  `cargo run -p xtask -- build-windows` call from "Cross-compilation".
+  `just bump-version <version>` updates `Cargo.toml`'s two version pins
+  and refreshes `Cargo.lock`; it deliberately does not touch
+  `CHANGELOG.md` — moving `[Unreleased]` into a dated section is a
+  judgment call about what actually shipped. Entirely optional: every
+  recipe is a thin wrapper over a command this file already ran directly,
+  nothing here is required to build, test, or release the project.
+  Shebang recipes shellcheck clean.
+  [`Justfile`](Justfile).
 
 ## [0.3.1] — 2026-08-24
 

@@ -490,6 +490,16 @@ CI enforces `-D warnings` via `CARGO_BUILD_WARNINGS=deny` (stable as of
 1.97), not by injecting `-D warnings` into `RUSTFLAGS` — `RUSTFLAGS`
 changes bust the build cache between local and CI runs.
 
+A [`Justfile`](Justfile) wraps all of the above, the `xtask` calls below,
+and a local release build into short recipes — `just` (no arguments) lists
+everything, grouped (`dev`, `xtask`, `cross-compile`, `release`,
+`housekeeping`). `just ci` runs the same build/test/clippy sequence CI
+does; `just build-windows` is the `xtask build-windows` call from
+[Cross-compilation](#cross-compilation) below. Requires
+[`just`](https://github.com/casey/just) (`brew install just` / `cargo
+install just`) — entirely optional, every recipe is a thin wrapper over a
+`cargo`/`xtask` command already documented in this file.
+
 ## Cross-compilation
 
 Local development happens on macOS. The pinned toolchain carries four

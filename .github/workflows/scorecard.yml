@@ -1,0 +1,55 @@
+# OSSF Scorecard — runs weekly against `main` and publishes the result as
+# a SARIF report to the GitHub Code Scanning tab. The action is the
+# official https://github.com/ossf/scorecard-action; the workflow follows
+# the project's own security-hardening guidance (permissions scoped to
+# the minimum the action needs, pinned action SHA, weekly cron).
+#
+# What this catches in addition to branch protection:
+#   - Pinned-Dependencies     (every `uses:` in every workflow is SHA-pinned)
+#   - Token-Permissions       (this workflow declares `permissions:` explicitly)
+#   - Dependency-Update-Tool  (Dependabot config presence)
+#   - Signed-Releases         (release.yml signs artefacts)
+#   - Security-Policy        (SECURITY.md presence)
+#   - SAST                    (CodeQL from ci.yml)
+#   - Binary-Artifacts        (no committed binaries; release builds from source)
+
+name: Scorecard
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    # Weekly Monday 06:30 UTC — six hours after Dependabot opens its
+    # weekly batch so this run sees the dependency-update PRs if any
+    # already landed in the same weekly window.
+    - cron: "30 6 * * 1"
+  workflow_dispatch: {}
+
+permissions: read-all
+
+jobs:
+  analysis:
+    name: Scorecard analysis
+    runs-on: ubuntu-latest
+    # Hard-pin the action to a full commit SHA — `ossf/scorecard-action`
+    # is the upstream-distributed action; pinned-Dependencies is itself a
+    # Scorecard check, so the workflow that audits pinned-dependencies
+    # cannot itself use a tag ref. Bump by editing this line and the
+    # `with:` block together; the renovate/dependabot `github-actions`
+    # batch in `.github/dependabot.yml` is grouped by major so a major
+    # bump of scorecard-action will land as its own reviewable PR.
+    steps:
+      - name: "Run scorecard"
+        uses: ossf/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc # v2.4.4
+        with:
+          # `repo_token` defaults to the workflow GITHUB_TOKEN, which has
+          # read access to the repo contents / metadata this action needs.
+          # Exposing a PAT would grant write surface that Scorecard does
+          # not need.
+          results_file: results.sarif
+          results_format: sarif
+          # Publish to the Code Scanning tab so the SARIF renders in the
+          # Security overview alongside CodeQL — that's the only place
+          # the OSSF Scorecard numbers are useful to humans browsing the
+          # repo's security posture.
+          publish_results: true

@@ -60,7 +60,7 @@ netlink-sys = { version = "0.8", default-features = false }
 # type this project's own fixtures and recommended setup use; dropping RSA
 # support keeps `cargo audit` clean by removing the vulnerable dependency
 # rather than suppressing the finding.
-russh = { version = "0.62.7", default-features = false, features = [
+russh = { version = "0.63.2", default-features = false, features = [
   "ring",
   "flate2",
 ] }

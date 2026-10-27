@@ -642,15 +642,33 @@ conditions at once:
   most recent commit** on the branch (`require_last_push_approval`).
 
 The third condition is the one that surprises people. GitHub decides
-who "pushed last" from the **head commit's author attribution**, not
-from the push event. So if the head commit is attributed to the same
-account that is approving it, the approval does not count — even if a
-different account performed the actual `git push`.
+who "pushed last" from the **account that performed the `git push`**,
+not from the commit's author or committer. If the same account pushes
+the branch and then approves it, the approval does not count.
 
-With one code owner, that makes the head commit's attribution
-load-bearing: it must belong to an account other than the approver.
-Practically, author the final commit with the account that will push
-it, and let the code owner approve.
+With one code owner, that means the pusher and the approver have to be
+different accounts. Two things have to line up:
+
+- **The push must authenticate as a different account than the
+  approver.** `git push` picks its credential from the configured
+  helpers, and the *first* helper that answers wins. If the global
+  `credential.helper` is `osxkeychain`, the push uses whichever token
+  the keychain happens to hold for `github.com` — regardless of which
+  account `gh auth switch` last selected. Point this repository's
+  credential at `gh` instead, so the active `gh` account is the one
+  that pushes:
+
+  ```bash
+  git config --local credential.https://github.com.helper \
+    '!/opt/homebrew/bin/gh auth git-credential'
+  ```
+
+- **The head commit must be authored and committed by the pushing
+  account**, with a signing key that account has registered, so the
+  commit attributes to the pusher rather than to the approver.
+
+Then author, sign, and push as the non-approver account, and let the
+code owner approve.
 
 ## Fuzzing
 

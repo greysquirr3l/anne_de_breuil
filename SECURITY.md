@@ -7,8 +7,13 @@ as a tagged release; there are no long-term-support branches.
 
 | Version | Supported |
 | ------- | --------- |
-| latest release | yes |
-| anything older | no |
+| 0.4.x | yes |
+| 0.3.x and anything older | no |
+
+`0.4.0` is the current release. It is the first release distributed on
+crates.io (`cargo install anne-de-breuil-cli`) as well as through GitHub
+Releases, and it raises the minimum supported Rust version to 1.99.1 —
+build from source with a 1.99.1-or-newer toolchain.
 
 ## Reporting a Vulnerability
 
@@ -50,6 +55,9 @@ In scope:
   must never appear in logs, reports, or collector output at any verbosity,
 - the release pipeline producing an artifact that does not correspond to
   the source it claims to come from,
+- the crates.io packages (`anne-de-breuil`, `anne-de-breuil-cli`)
+  differing from the tagged source they were published from, or a
+  published crate shipping a dependency the tag did not carry,
 - a report that misrepresents the host's actual exposure, in a way that
   leads an operator to a wrong conclusion about their security posture.
 

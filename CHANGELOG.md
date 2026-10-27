@@ -12,22 +12,12 @@ Task identifiers (`T01`–`T32`) cross-reference the entries in
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.4.0] — 2026-10-27
+
 ### Added
 
-- **`Justfile`** — wraps the build/test/lint/audit commands already
-  documented in `README.md`'s "Build, test, lint" section, every `xtask`
-  task, and a local release build (`release-windows`, `release-musl-*`,
-  `release-checksums`) that mirrors `release.yml`'s own per-target steps
-  into a gitignored `./dist/`. `just build-windows` is the
-  `cargo run -p xtask -- build-windows` call from "Cross-compilation".
-  `just bump-version <version>` updates `Cargo.toml`'s two version pins
-  and refreshes `Cargo.lock`; it deliberately does not touch
-  `CHANGELOG.md` — moving `[Unreleased]` into a dated section is a
-  judgment call about what actually shipped. Entirely optional: every
-  recipe is a thin wrapper over a command this file already ran directly,
-  nothing here is required to build, test, or release the project.
-  Shebang recipes shellcheck clean.
-  [`Justfile`](Justfile).
 - **crates.io distribution** — `publish-crate.yml` publishes the
   library (`anne-de-breuil`) and then the CLI (`anne-de-breuil-cli`) to
   crates.io on every tagged release, making `cargo install
@@ -54,9 +44,74 @@ Task identifiers (`T01`–`T32`) cross-reference the entries in
   `attest-build-provenance` in-toto bundle as an `.intoto.jsonl` release
   asset alongside the binaries, so the provenance travels with the bytes
   instead of only living in GitHub's attestation store.
+- **`.gitattributes`** — pins working-tree line endings to LF on every
+  platform (`* text=auto eol=lf`), marks the fuzz seed, the report
+  fonts, and other binary assets as `binary`, and states the
+  PowerShell collector's LF-only requirement explicitly. Without it, a
+  Windows checkout produced CRLF working-tree files, which broke a
+  workflow-audit assertion; the underlying condition would have kept
+  reappearing in every test written against a repository file.
+  [`.gitattributes`](.gitattributes).
+- **`Justfile`** — wraps the build/test/lint/audit commands already
+  documented in `README.md`'s "Build, test, lint" section, every `xtask`
+  task, and a local release build (`release-windows`, `release-musl-*`,
+  `release-checksums`) that mirrors `release.yml`'s own per-target steps
+  into a gitignored `./dist/`. `just build-windows` is the
+  `cargo run -p xtask -- build-windows` call from "Cross-compilation".
+  `just bump-version <version>` updates `Cargo.toml`'s two version pins
+  and refreshes `Cargo.lock`; it deliberately does not touch
+  `CHANGELOG.md` — moving `[Unreleased]` into a dated section is a
+  judgment call about what actually shipped. Entirely optional: every
+  recipe is a thin wrapper over a command this file already ran directly,
+  nothing here is required to build, test, or release the project.
+  Shebang recipes shellcheck clean.
+  [`Justfile`](Justfile).
+- **Workflow audit suites** — `ci_workflow_audit.rs`,
+  `release_workflow_audit.rs`, and the new
+  `publish_crate_workflow_audit.rs` pull the real workflow files in
+  with `include_str!` and assert the properties whose failure is
+  otherwise silent (6 + 23 + 14 tests). A regression in a workflow now
+  fails `cargo test`, not a manual read of the YAML.
+  [`crates/anne-de-breuil-cli/tests/`](crates/anne-de-breuil-cli/tests/).
+
+### Changed
+
+- **Rust 1.97.1 → 1.99.1** — the `rust-toolchain.toml` pin and the
+  workspace's `rust-version` floor had diverged; both are 1.99.1 now.
+  The pin stays exact (1.97.0 has a known LLVM miscompilation,
+  rust-lang/rust#159035, fixed only in the 1.97.1 patch). This raises
+  the minimum supported Rust version, which is why the release is a
+  minor bump rather than a patch.
+  [`rust-toolchain.toml`](rust-toolchain.toml).
+- **`release.yml` no longer checks out the triggering workflow run's
+  commit** — it reads the release tag from an artifact instead. The old
+  `${{ github.event.workflow_run.head_sha }}` checkout was the
+  untrusted-code-checkout pattern: it ran the repository's own code
+  from a commit the tag had not yet blessed. This also fixed a real
+  bug, where every non-release push to `main` failed the `resolve-tag`
+  job with a bare `git describe` exit 128.
+  [`.github/workflows/release.yml`](.github/workflows/release.yml).
+- **Every GitHub Action is pinned to a commit SHA** — they were pinned
+  to floating tags, so a tag could be repointed at new code after this
+  repository reviewed it. The SBOM's `syft` installer is pinned the
+  same way; it was a floating `curl | sh` off `main` that installed
+  whatever was newest.
+- **`auto-tag.yml`'s write scope narrowed** — a top-level
+  `contents: write` handed every step in every job of the file write
+  access to the repository, including the `actions/checkout` step, which
+  does not need it. The write is now scoped to the one job that pushes
+  the tag.
+  [`.github/workflows/auto-tag.yml`](.github/workflows/auto-tag.yml).
+- **Dependabot now covers the `/fuzz` workspace**, so `libfuzzer-sys` is
+  no longer the one dependency no updater sees.
+  [`.github/dependabot.yml`](.github/dependabot.yml).
 
 ### Fixed
 
+- **20 advisories → 0** — `russh` 0.63.x → 0.64.1 (the SSH transport
+  used to push collectors onto remote hosts) and `basic-toml`
+  (unmaintained, RUSTSEC-2026-0374) dropped entirely by turning off
+  askama's unused `config` feature.
 - **nftables chain with an empty table name produced a malformed rule
   id** — `nft_wire::decode_nla_string` decoded a zero-length NLA string
   attribute as `Some("")` rather than `None`. The consumer
@@ -66,6 +121,25 @@ Task identifiers (`T01`–`T32`) cross-reference the entries in
   at all, which reads as a real rule but is not one. Found by the new
   `nft-wire` fuzz target; fixed with a regression test.
   [`nft_wire.rs`](crates/anne-de-breuil/src/adapters/linux_collector/nft_wire.rs).
+- **`clippy::mut_mut` on Linux** — the nftables firewall adapter called
+  `socket.recv(&mut &mut buf[..], 0)`. The doubled mutable borrow was
+  already on `main`; it had simply never been compiled on a Linux
+  runner, because the file is `#[cfg(target_os = "linux")]`. The borrow
+  is now bound to a local.
+  [`firewall.rs`](crates/anne-de-breuil/src/adapters/linux_collector/firewall.rs).
+- **The workflow audit suites assumed LF line endings** —
+  `the_workflow_file_is_valid_yaml_with_the_expected_shape` asserted
+  against `"\njobs:\n"`, but `include_str!` reads the file as it is on
+  disk, and a Windows checkout has CRLF endings. The audit helpers now
+  normalise line endings before any string assertion, in all three
+  workflow audit suites.
+- **The `main` branch ruleset** — an OSSF branch-protection ruleset
+  (code-owner review, last-push approval, required signatures, linear
+  history, required status checks) and a `.github/CODEOWNERS` file
+  covering the release pipeline, the toolchain pin, `deny.toml`, and
+  `Cargo.lock`. Without a `CODEOWNERS` file the code-owner rule is a
+  no-op and the OSSF Branch-Protection score drops a tier.
+  [`.github/CODEOWNERS`](.github/CODEOWNERS).
 
 ## [0.3.1] — 2026-08-24
 
@@ -798,7 +872,8 @@ cut, so the version number isn't claimed twice. See
 [`PROGRESS.md`](PROGRESS.md) for the per-task index and `git log` for
 the commit-level detail.
 
-[Unreleased]: https://github.com/greysquirr3l/anne_de_breuil/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/greysquirr3l/anne_de_breuil/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/greysquirr3l/anne_de_breuil/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/greysquirr3l/anne_de_breuil/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/greysquirr3l/anne_de_breuil/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/greysquirr3l/anne_de_breuil/compare/v0.1.0...v0.2.0

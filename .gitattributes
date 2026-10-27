@@ -1,0 +1,36 @@
+# Normalise line endings in the working tree to LF on every platform.
+#
+# Git stores LF in the repository regardless; this controls what lands
+# on disk. Without it, a Windows checkout (where `core.autocrlf`
+# defaults to `true`) produces CRLF working-tree files, and any code
+# that reads a repository file and matches on "\n" silently behaves
+# differently on Windows than on Linux and macOS.
+#
+# That is not hypothetical: the workflow audit tests assert against
+# literal "\n" sequences, and they failed on the Windows CI runner
+# because the checkout had CRLF endings. Normalising at the source
+# removes the whole class of problem rather than patching each
+# assertion that happens to trip over it.
+#
+# `text=auto` lets Git decide per file: anything it detects as binary
+# is left untouched. The explicit `binary` lines below are belt and
+# braces for the files where a misdetection would corrupt data.
+* text=auto eol=lf
+
+# Fuzzing seeds. The netlink seed is raw bytes from a captured
+# NETLINK_NETFILTER response and contains NUL bytes, so Git's content
+# sniffing already treats it as binary -- but a seed that silently
+# changes by a single byte is a fuzzer that quietly stops reproducing
+# the defect it was found for, so the intent is stated explicitly.
+*.bin binary
+
+# Subsetted WOFF2 faces, embedded into the self-contained HTML report
+# via `include_bytes!`. Same reasoning: these are compiled into a
+# shipped artifact and must be byte-identical everywhere.
+*.woff2 binary
+
+# The Windows collector is pushed to remote hosts and executed by
+# Windows PowerShell 5.1, which parses LF-only scripts without
+# complaint. It is listed here only to make the decision explicit --
+# no file in this repository requires CRLF.
+*.ps1 text eol=lf

@@ -581,7 +581,7 @@ mod tests {
     fn self_diff_is_empty() {
         let snap = fixtures::sample_snapshot();
         let report = diff(&snap, &snap);
-        assert!(report.entries.is_empty());
+        assert_eq!(report.entries, Vec::new());
         assert_eq!(report.suppressed_ephemeral, 0);
     }
 
@@ -597,17 +597,16 @@ mod tests {
         let mut current = baseline.clone();
         current.endpoints[0] = fixtures::same_endpoint_different_pid(&baseline.endpoints[0]);
         let report = diff(&baseline, &current);
-        assert!(report.entries.is_empty());
+        assert_eq!(report.entries, Vec::new());
         assert_eq!(report.suppressed_ephemeral, 0);
     }
-
     #[test]
     fn ephemeral_port_churn_is_suppressed_not_dropped_silently() {
         let baseline = fixtures::snapshot_without_ephemeral_port(52_000);
         let current = fixtures::snapshot_with_ephemeral_port(52_000);
         let report = diff(&baseline, &current);
         assert_eq!(report.suppressed_ephemeral, 1);
-        assert!(report.entries.is_empty());
+        assert_eq!(report.entries, Vec::new());
     }
 
     #[test]

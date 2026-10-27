@@ -5,6 +5,7 @@
 //! read of the YAML.
 
 const RELEASE_WORKFLOW: &str = include_str!("../../../.github/workflows/release.yml");
+const AUTO_TAG_WORKFLOW: &str = include_str!("../../../.github/workflows/auto-tag.yml");
 
 /// The tag-push-loop-prevention gotcha this task's own spec calls out: a
 /// tag pushed with the default `GITHUB_TOKEN` never fires another
@@ -20,23 +21,41 @@ fn release_workflow_uses_workflow_run_not_tag_push() {
         "release.yml must trigger off workflow_run, not a tag push directly"
     );
     assert!(
-        !RELEASE_WORKFLOW.contains("on:\n  push:\n    tags"),
+        !RELEASE_WORKFLOW.replace("\r\n", "\n").contains("on:\n  push:\n    tags"),
         "a plain `on: push: tags` trigger will never fire for a tag pushed by GITHUB_TOKEN"
     );
 }
 
-/// `resolve-tag`'s `git describe --exact-match` genuinely can fail --
-/// e.g. a real race hit during iteration, where the tag moved again
-/// after this `workflow_run`'s own triggering commit but before this
-/// job actually executed. Without `set -e`, a failing command
-/// substitution inside `echo "tag=$(...)"` still produces a zero-exit
-/// `echo` with an empty value, silently writing `tag=` to
-/// `GITHUB_OUTPUT` -- confirmed on a real run, where it surfaced three
-/// jobs later as `publish-release` failing with the opaque "GitHub
-/// Releases requires a tag" instead of a clear failure at the source.
+/// The tag must come from `auto-tag.yml`'s artifact, not from checking
+/// out `${{ github.event.workflow_run.head_sha }}` and re-deriving it
+/// with `git describe --tags --exact-match HEAD`.
+///
+/// Two independent reasons, and the second one is a bug that actually
+/// shipped:
+///
+///   1. Scorecard's Dangerous-Workflow check flags any `actions/checkout`
+///      whose `ref` derives from `github.event.workflow_run` as an
+///      "untrusted code checkout" -- the pwn-request pattern where a
+///      privileged workflow builds attacker-influenced code. The
+///      artifact handoff means `release.yml` never checks out the
+///      triggering commit at all.
+///
+///   2. `git describe --exact-match HEAD` exits 128 whenever the
+///      checked-out commit is not the tagged one -- which is exactly
+///      what happens when `auto-tag.yml` found the version already
+///      tagged and pushed nothing. Every push to `main` that was not a
+///      release therefore failed `resolve-tag` with a bare exit 128 and
+///      no diagnostic. The artifact carries the "no new tag" decision
+///      explicitly, so that case is now a clean no-op.
+///
+/// The `set -e` requirement stays: an unreadable or malformed artifact
+/// must fail this job loudly rather than silently emitting an empty
+/// tag, which would surface three jobs later in `publish-release` as
+/// the opaque "GitHub Releases requires a tag".
 #[test]
-fn resolve_tag_fails_loudly_instead_of_emitting_an_empty_tag() {
-    let resolve_tag_job: String = RELEASE_WORKFLOW
+fn resolve_tag_reads_the_tag_from_the_artifact_not_an_untrusted_checkout() {
+    let release_workflow = without_comments(RELEASE_WORKFLOW);
+    let resolve_tag_job: String = release_workflow
         .lines()
         .skip_while(|line| line.trim() != "resolve-tag:")
         .skip(1)
@@ -44,9 +63,48 @@ fn resolve_tag_fails_loudly_instead_of_emitting_an_empty_tag() {
         .collect::<Vec<_>>()
         .join("\n");
     assert!(
+        !resolve_tag_job.contains("github.event.workflow_run.head_sha"),
+        "resolve-tag must not check out the triggering workflow_run's commit -- that is the \
+         untrusted-code-checkout pattern Scorecard's Dangerous-Workflow check flags"
+    );
+    assert!(
+        !release_workflow.contains("github.event.workflow_run.head_sha"),
+        "no job in release.yml may check out the triggering workflow_run's commit"
+    );
+    assert!(
+        resolve_tag_job.contains("download-artifact"),
+        "resolve-tag must read the tag from the artifact auto-tag.yml uploaded"
+    );
+    assert!(
         resolve_tag_job.contains("set -e"),
-        "resolve-tag's `git describe` step must run under `set -e` so a failed lookup fails \
-         this job instead of silently emitting an empty tag"
+        "resolve-tag's artifact read must run under `set -e` so a failed lookup fails this \
+         job instead of silently emitting an empty tag"
+    );
+}
+
+/// The "no new tag" case has to be distinguishable from the normal
+/// case, and it has to be a clean no-op: `auto-tag.yml` publishes the
+/// literal `none` (rather than an empty file) when the workspace
+/// version was already tagged, and `release.yml` turns that into an
+/// empty `tag` output -- which every downstream job guards on, so a
+/// non-release push to `main` does no work and fails nothing.
+#[test]
+fn a_non_release_push_is_a_clean_no_op() {
+    let release_workflow = without_comments(RELEASE_WORKFLOW);
+    let resolve_tag_job: String = release_workflow
+        .lines()
+        .skip_while(|line| line.trim() != "resolve-tag:")
+        .skip(1)
+        .take_while(|line| line.starts_with("    ") || line.trim().is_empty())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        resolve_tag_job.contains("\"none\""),
+        "resolve-tag must recognise auto-tag.yml's 'no new tag' sentinel"
+    );
+    assert!(
+        release_workflow.contains("needs.resolve-tag.outputs.tag != ''"),
+        "every job that builds or publishes a release must be guarded on a non-empty tag"
     );
 }
 
@@ -240,6 +298,82 @@ fn indent_of(line: &str) -> usize {
     line.len() - line.trim_start().len()
 }
 
+/// A workflow's executable content, with comment lines removed.
+///
+/// Several of the properties below are argued in prose in the workflow
+/// files themselves -- the comment explaining *why* `resolve-tag` must
+/// not check out `github.event.workflow_run.head_sha` necessarily
+/// contains that very string. Asserting against the raw file would then
+/// fail on the explanation, so the checks run against this instead: a
+/// line whose first non-space character is `#` is documentation, not
+/// configuration.
+fn without_comments(workflow: &str) -> String {
+    workflow
+        .replace("\r\n", "\n")
+        .lines()
+        .filter(|line| !line.trim_start().starts_with('#'))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// The syft installer is fetched over the network and executed. It must
+/// be pinned to a commit SHA, and the syft release it installs must be
+/// pinned to a version.
+///
+/// Two independent reasons, both of which are real supply-chain
+/// weaknesses rather than style points:
+///
+///   1. Fetching the installer from `main` means its contents can
+///      change between the review that approved the line and the moment
+///      the runner executes it. The runner's `GITHUB_TOKEN` is in
+///      scope, so "the script changed" is "arbitrary code ran with
+///      release credentials".
+///   2. The install script defaults to the *latest* release, so the
+///      `CycloneDX` SBOM would be generated by a syft version nobody
+///      chose and nobody could reproduce.
+///
+///
+/// The SHA and the version are written out literally rather than
+/// interpolated from `env:`. Scorecard parses the shell script text, so
+/// a `${{ env.SYFT_INSTALL_SHA }}` would read as a variable rather than
+/// as a commit SHA -- and Scorecard's Pinned-Dependencies check would
+/// (correctly) still report the download as unpinned.
+#[test]
+fn the_syft_installer_is_pinned_to_a_commit_sha_and_a_version() {
+    let release_workflow = without_comments(RELEASE_WORKFLOW);
+
+    // The installer URL carries a 40-hex commit SHA.
+    let sha = release_workflow
+        .lines()
+        .find(|line| line.contains("raw.githubusercontent.com/anchore/syft/"))
+        .expect("release.yml fetches the syft installer from raw.githubusercontent.com");
+    assert!(
+        sha.contains("/anchore/syft/")
+            && sha
+                .split("/anchore/syft/")
+                .nth(1)
+                .is_some_and(|rest| {
+                    let candidate = rest.split('/').next().unwrap_or_default();
+                    candidate.len() == 40
+                        && candidate.chars().all(|c| c.is_ascii_hexdigit())
+                }),
+        "the syft installer must be fetched from a commit SHA, not a branch: {sha}"
+    );
+
+    // The installed syft version is pinned, not "latest".
+    assert!(
+        release_workflow.contains("sh -s -- -b /usr/local/bin v"),
+        "the syft install must pass an explicit version tag -- the script defaults to `latest`"
+    );
+
+    // And the pinned version is not interpolated from an env var, which
+    // the pinning check could not see.
+    assert!(
+        !release_workflow.contains("${SYFT"),
+        "the syft SHA and version must be literal -- Scorecard parses the shell text, not the env"
+    );
+}
+
 /// Job ids in ci.yml whose `name:` template uses `${{ matrix.os }}` --
 /// we use this list to verify the assertion's expectations cover every
 /// rendering, not just one.
@@ -324,7 +458,7 @@ jobs:
     name: Scorecard analysis
     runs-on: ubuntu-latest
 ";
-        assert!(job_ids_using_matrix_os(yaml).is_empty());
+        assert_eq!(job_ids_using_matrix_os(yaml), Vec::<&str>::new());
     }
 
     #[test]
@@ -338,7 +472,7 @@ jobs:
       matrix:
         os: [ubuntu-latest]
 ";
-        assert!(job_ids_using_matrix_os(yaml).is_empty());
+        assert_eq!(job_ids_using_matrix_os(yaml), Vec::<&str>::new());
     }
 
     #[test]
@@ -519,14 +653,12 @@ fn scorecard_workflow_is_pinned_explicit_and_publishes_sarif() {
         "scorecard.yml must invoke ossf/scorecard-action"
     );
     // SHA-pinned — the ref must look like 40-hex chars, not a tag. Pinned
-    // to v2.4.4 (commit 2d1146689b8cda280b9bc96326124645441f03bc, "Bump
-    // action tag for v2.4.4 release #1688", annotated tag dated
-    // 2026-07-23); the test pins the literal SHA so a tag-ref mistake in
-    // the workflow file surfaces as a compile-time failure rather than a
-    // runtime surprise.
+    // to v2.5.0 (commit fa7117db83c52d787ae5a89f350999701505d78e); the
+    // test pins the literal SHA so a tag-ref mistake in the workflow file
+    // surfaces as a compile-time failure rather than a runtime surprise.
     assert!(
         SCORECARD_WORKFLOW
-            .contains("uses: ossf/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc"),
+            .contains("uses: ossf/scorecard-action@fa7117db83c52d787ae5a89f350999701505d78e"),
         "scorecard.yml must pin the action to a full commit SHA — tag refs \
          are exactly what the Pinned-Dependencies Scorecard check penalises"
     );
@@ -543,5 +675,58 @@ fn scorecard_workflow_is_pinned_explicit_and_publishes_sarif() {
     assert!(
         SCORECARD_WORKFLOW.contains("results_format: sarif"),
         "scorecard.yml must emit SARIF (the format Code Scanning ingests)"
+    );
+}
+
+/// `auto-tag.yml` is the other half of the release handshake, and it
+/// has to publish the tag it resolved for `release.yml` to read back.
+/// Without the artifact there is no channel between the two workflows
+/// -- a `workflow_run` event carries none of the triggering run's job
+/// outputs -- and `release.yml` would be back to checking out the
+/// triggering commit to re-derive the tag, which is the pattern
+/// `resolve_tag_reads_the_tag_from_the_artifact_not_an_untrusted_checkout`
+/// rules out.
+#[test]
+fn auto_tag_publishes_the_resolved_tag_as_an_artifact() {
+    assert!(
+        AUTO_TAG_WORKFLOW.contains("upload-artifact"),
+        "auto-tag.yml must upload the resolved tag so release.yml can read it back"
+    );
+    assert!(
+        AUTO_TAG_WORKFLOW.contains("name: release-tag"),
+        "the artifact name must match the one release.yml downloads"
+    );
+    assert!(
+        AUTO_TAG_WORKFLOW.contains("tag=none"),
+        "auto-tag.yml must publish the literal 'none' when the version was already tagged, so \
+         release.yml can tell 'no new tag' from 'no artifact'"
+    );
+}
+
+/// The `contents: write` grant belongs on the job that actually pushes
+/// the tag, not on the workflow. A top-level grant would hand write
+/// access to the repository to every step of every job in the file --
+/// including the `actions/checkout` step, which does not need it. This
+/// is the Token-Permissions Scorecard check's least-privilege property.
+#[test]
+fn auto_tag_scopes_its_write_grant_to_the_job_that_needs_it() {
+    let auto_tag_workflow = without_comments(AUTO_TAG_WORKFLOW);
+    let top_level = auto_tag_workflow
+        .lines()
+        .take_while(|line| !line.trim_start().starts_with("jobs:"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        top_level.contains("permissions:"),
+        "auto-tag.yml must set a top-level `permissions:` block"
+    );
+    assert!(
+        !top_level.contains("contents: write"),
+        "the top-level grant must be read-only -- contents: write belongs on the tagging job \
+         alone, and a workflow-wide write grant is what the Token-Permissions check penalises"
+    );
+    assert!(
+        auto_tag_workflow.contains("contents: write"),
+        "the job that pushes the tag must hold contents: write explicitly"
     );
 }

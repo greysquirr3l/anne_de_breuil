@@ -9,6 +9,8 @@
 #   The `cargo` ecosystem here resolves the actual workspace dependencies,
 #   which is what the SBOM tracks — keeping this up to date is the
 #   primary mitigation for new advisories landing between releases.
+#   A second `cargo` entry covers `/fuzz`, which is a workspace of its
+#   own and therefore invisible to the root entry.
 #
 # github-actions: weekly, grouped by major-version bucket so a breaking
 #   release of, say, `actions/checkout` doesn't drown out routine patch
@@ -35,6 +37,26 @@ updates:
       dependency-type: "direct"
     cargo-transitive-dependencies:
       dependency-type: "indirect"
+  labels:
+  - "dependencies"
+  - "cargo"
+  commit-message:
+    prefix: "chore(deps)"
+    include: "scope"
+
+# The fuzz crate is a workspace of its own (fuzzing needs a nightly
+# toolchain, which the pinned stable workspace cannot use), so the
+# `cargo` entry above -- which resolves against the root workspace --
+# never sees `libfuzzer-sys`. Without this entry, that dependency is
+# the one crate in the repository that no automated updater touches.
+- package-ecosystem: "cargo"
+  directory: "/fuzz"
+  target-branch: "main"
+  schedule:
+    interval: "weekly"
+    day: "monday"
+    time: "06:00"
+    timezone: "UTC"
   labels:
   - "dependencies"
   - "cargo"

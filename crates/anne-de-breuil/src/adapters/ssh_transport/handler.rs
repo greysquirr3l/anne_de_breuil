@@ -18,7 +18,7 @@ use std::sync::Arc;
 use russh::client::{AuthResult, Handle, Handler};
 use russh::keys::agent::AgentIdentity;
 use russh::keys::agent::client::AgentClient;
-use russh::keys::{PrivateKeyWithHashAlg, PublicKey};
+use russh::keys::{PrivateKeyWithHashAlg, PublicKeyOrCertificate};
 
 use crate::adapters::inventory::AuthMethod;
 use crate::application::remote::TransportError;
@@ -58,17 +58,30 @@ impl ClientHandler {
 impl Handler for ClientHandler {
     type Error = TransportError;
 
-    async fn check_server_key(
+    fn check_server_key(
         &mut self,
-        server_public_key: &PublicKey,
-    ) -> Result<bool, Self::Error> {
-        verify_host_key(
-            &self.known_hosts,
-            &self.host_label,
-            server_public_key,
-            self.accept_new,
-        )?;
-        Ok(true)
+        server_public_key: &PublicKeyOrCertificate,
+    ) -> impl Future<Output = Result<bool, Self::Error>> + Send {
+        // A bare public key is what the `known_hosts` book records, so it
+        // is the only thing this transport can actually verify. A
+        // certificate is vouched for by a certificate authority, and the
+        // key it carries is not the key the operator ever recorded for
+        // that host -- checking that inner key against `known_hosts`
+        // would answer a different question than the one the book is
+        // able to answer, and could accept a certificate nobody in the
+        // trust store vouched for. Fail closed instead: verifying a
+        // certificate needs a CA trust store this transport does not
+        // have.
+        let verified = match server_public_key {
+            PublicKeyOrCertificate::PublicKey { key, .. } => {
+                verify_host_key(&self.known_hosts, &self.host_label, key, self.accept_new)
+                    .map(|()| true)
+            }
+            PublicKeyOrCertificate::Certificate(_) => {
+                Err(TransportError::HostKeyCertificateUnsupported)
+            }
+        };
+        std::future::ready(verified)
     }
 }
 

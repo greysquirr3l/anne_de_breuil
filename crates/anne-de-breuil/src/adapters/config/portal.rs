@@ -77,7 +77,7 @@ mod tests {
 
     #[test]
     fn default_has_no_tokens() {
-        assert!(PortalConfig::default().tokens.is_empty());
+        assert_eq!(PortalConfig::default().tokens, Vec::new());
     }
 
     #[test]

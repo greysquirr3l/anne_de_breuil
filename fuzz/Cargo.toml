@@ -1,0 +1,48 @@
+[package]
+name = "anne-de-breuil-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+rust-version = "1.99.1"
+
+[package.metadata]
+cargo-fuzz = true
+
+# Deliberately NOT a workspace member. `cargo-fuzz` requires a nightly
+# toolchain (it needs `-Z sanitizer=address` to build the libFuzzer
+# harness), and this workspace is pinned to stable 1.99.1 by
+# `rust-toolchain.toml`. Keeping the fuzz crate outside the workspace
+# means `cargo build --workspace` and `cargo test --workspace` never see
+# it, so the stable pin is not compromised. See `fuzz/README.md` for how
+# to run it.
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.anne-de-breuil]
+path = "../crates/anne-de-breuil"
+# The fuzz targets below only reach the pure parsing functions, which
+# are behind the `linux-collector` feature. Turning it on here pulls
+# `netlink-sys` and `netstat2` into the fuzz build.
+features = ["linux-collector"]
+
+# `cargo-fuzz` expects one binary per fuzz target, each declared
+# explicitly -- cargo's auto-discovery of `fuzz_targets/*.rs` is not
+# enabled for a crate that has no `src/` directory.
+[[bin]]
+name = "proc-net"
+path = "fuzz_targets/proc_net.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "nft-wire"
+path = "fuzz_targets/nft_wire.rs"
+test = false
+doc = false
+
+# `cargo-fuzz` builds every target with these profile settings; the
+# `debug = 1` keeps the sanitizer's stack traces readable.
+[profile.release]
+debug = 1

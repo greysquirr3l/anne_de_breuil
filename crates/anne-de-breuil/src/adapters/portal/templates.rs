@@ -199,7 +199,7 @@ mod tests {
             Severity::High,
             Severity::Critical,
         ] {
-            assert!(!severity_label(severity).is_empty());
+            assert_ne!(severity_label(severity), "");
             assert!(severity_css_class(severity).starts_with("severity-"));
         }
     }
@@ -211,7 +211,7 @@ mod tests {
             TargetStrategy::Probe,
             TargetStrategy::LocalOnly,
         ] {
-            assert!(!strategy_label(strategy).is_empty());
+            assert_ne!(strategy_label(strategy), "");
         }
     }
 
@@ -224,7 +224,7 @@ mod tests {
             Reachability::DefaultAction,
             Reachability::Indeterminate,
         ] {
-            assert!(!reachability_label(reachability).is_empty());
+            assert_ne!(reachability_label(reachability), "");
         }
     }
 

@@ -214,6 +214,7 @@ fn map_transport_error(err: &TransportError) -> HostError {
         TransportError::IntegrityMismatch
         | TransportError::UnknownHostKey { .. }
         | TransportError::HostKeyChanged
+        | TransportError::HostKeyCertificateUnsupported
         | TransportError::OutputCapExceeded
         | TransportError::InvalidPath(_) => HostError::Fatal(err.to_string()),
     }

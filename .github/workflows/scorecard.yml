@@ -40,7 +40,7 @@ jobs:
     # bump of scorecard-action will land as its own reviewable PR.
     steps:
       - name: "Run scorecard"
-        uses: ossf/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc # v2.4.4
+        uses: ossf/scorecard-action@fa7117db83c52d787ae5a89f350999701505d78e # v2.5.0
         with:
           # `repo_token` defaults to the workflow GITHUB_TOKEN, which has
           # read access to the repo contents / metadata this action needs.

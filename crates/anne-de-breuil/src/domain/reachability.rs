@@ -342,7 +342,7 @@ mod tests {
         let endpoint = endpoint_on(9999);
         let verdict = evaluate(&endpoint, &[], &[]);
         assert_eq!(verdict.reachability, Reachability::DefaultAction);
-        assert!(verdict.matched_rules.is_empty());
+        assert_eq!(verdict.matched_rules, Vec::<&FirewallRule>::new());
     }
 
     #[test]
@@ -354,7 +354,7 @@ mod tests {
         let rules = [rule];
         let verdict = evaluate(&endpoint, &rules, &[]);
         assert_eq!(verdict.reachability, Reachability::DefaultAction);
-        assert!(verdict.matched_rules.is_empty());
+        assert_eq!(verdict.matched_rules, Vec::<&FirewallRule>::new());
     }
 
     #[test]
@@ -392,7 +392,7 @@ mod tests {
         let rules = vec![block_rule(443)];
         let verdict = evaluate(&endpoint, &rules, &[]);
         assert_eq!(verdict.reachability, Reachability::LocalOnly);
-        assert!(verdict.matched_rules.is_empty());
+        assert_eq!(verdict.matched_rules, Vec::<&FirewallRule>::new());
     }
 
     #[test]

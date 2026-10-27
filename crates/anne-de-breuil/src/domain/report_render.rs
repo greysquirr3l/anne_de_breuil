@@ -311,7 +311,7 @@ pub fn render_sarif(model: &ReportModel) -> serde_json::Value {
 /// Returns the model's single host id, or `None` if the model has zero or
 /// more than one host section — see [`render_sarif`]'s doc comment for why
 /// only the unambiguous case gets a host-attributed location.
-fn single_host_id(model: &ReportModel) -> Option<HostId> {
+const fn single_host_id(model: &ReportModel) -> Option<HostId> {
     match model.hosts.as_slice() {
         [only] => Some(only.host_id),
         _ => None,
@@ -629,7 +629,7 @@ mod tests {
         let model = fixtures::single_host_report_model_with_drift();
         let sarif = render_sarif(&model);
         let results = sarif["runs"][0]["results"].as_array().unwrap();
-        assert!(!results.is_empty());
+        assert_ne!(results, &Vec::<serde_json::Value>::new());
 
         let host_id = model.hosts.first().unwrap().host_id.to_string();
         let found_host_and_endpoint = results.iter().any(|result| {
@@ -648,7 +648,7 @@ mod tests {
         let model = fixtures::multi_host_report_model_with_drift();
         let sarif = render_sarif(&model);
         let results = sarif["runs"][0]["results"].as_array().unwrap();
-        assert!(!results.is_empty());
+        assert_ne!(results, &Vec::<serde_json::Value>::new());
 
         let never_names_a_host = results.iter().all(|result| {
             let name = result["locations"][0]["logicalLocations"][0]["fullyQualifiedName"]

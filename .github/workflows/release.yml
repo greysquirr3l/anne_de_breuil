@@ -4,8 +4,9 @@ name: release
 # pushed with the default GITHUB_TOKEN (as `auto-tag.yml` does) never fires
 # another workflow's `on: push: tags` -- GitHub suppresses that specifically
 # to stop one workflow's automated push from recursively triggering others.
-# `resolve-tag` re-derives the tag from the commit `auto-tag.yml` ran
-# against instead of trusting anything about *why* it ran.
+# `resolve-tag` reads the tag back out of the artifact `auto-tag.yml`
+# uploaded, rather than re-deriving it from the commit that workflow ran
+# against -- see the comment on that job for why that distinction matters.
 on:
   workflow_run:
     workflows: [auto-tag]
@@ -22,44 +23,75 @@ jobs:
   resolve-tag:
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
+    # Downloading an artifact from a *different* workflow run (this one
+    # runs in response to `auto-tag.yml`'s run) needs `actions: read` on
+    # the token. The workflow-level `permissions: contents: read` block
+    # zeroes every scope it does not name, so it has to be re-granted
+    # here explicitly.
+    permissions:
+      actions: read
+      contents: read
     outputs:
       tag: ${{ steps.tag.outputs.tag }}
     steps:
-      - uses: actions/checkout@v4
+      # The tag comes from `auto-tag.yml` via an artifact, not from
+      # checking out `${{ github.event.workflow_run.head_sha }}` and
+      # re-deriving it with `git describe`. Two reasons:
+      #
+      #   1. Scorecard's Dangerous-Workflow check flags any
+      #      `actions/checkout` whose `ref` is derived from
+      #      `github.event.workflow_run` as an "untrusted code checkout" --
+      #      the pwn-request pattern where a privileged workflow builds
+      #      attacker-controlled code. Even though `auto-tag.yml` only
+      #      ever runs on `push` to `main` (so the SHA is trusted in
+      #      practice), the pattern is what the check detects, and the
+      #      artifact handoff is strictly better: `release.yml` never
+      #      checks out the triggering commit at all.
+      #
+      #   2. It fixes a real failure. `git describe --tags --exact-match
+      #      HEAD` exits 128 whenever the checked-out commit is not the
+      #      tagged one -- which is exactly what happens when
+      #      `auto-tag.yml` decided the tag already existed and pushed
+      #      nothing. Every non-release push to `main` therefore failed
+      #      `resolve-tag` with a bare exit 128 and no diagnostic. The
+      #      artifact carries the "no new tag" decision explicitly, so
+      #      that case is now a clean, silent no-op.
+      - name: Download the tag resolved by the tagging workflow
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
-          fetch-depth: 0
-          fetch-tags: true
+          name: release-tag
+          path: tag
+          github-token: ${{ github.token }}
+          run-id: ${{ github.event.workflow_run.id }}
 
-      # `set -e` matters here specifically: `git describe --exact-match`
-      # exits non-zero when the checked-out commit isn't tagged (e.g. a
-      # tag moved again after this workflow_run's own triggering commit
-      # but before this job actually executed -- a real race hit during
-      # rapid iteration), and without `set -e` a failing command
-      # substitution inside `echo "tag=$(...)"` still produces a
-      # zero-exit `echo` with an *empty* value, silently writing
-      # `tag=` to GITHUB_OUTPUT. That produced a confusing failure three
-      # jobs later in `publish-release` ("GitHub Releases requires a
-      # tag") instead of a clear one here, at the actual point of
-      # failure.
       - id: tag
         run: |
-          set -e
-          tag=$(git describe --tags --exact-match HEAD)
+          set -euo pipefail
+          tag=$(tr -d '[:space:]' < tag/release-tag.txt)
+          if [ "$tag" = "none" ]; then
+            echo "::notice::the tagging workflow created no new tag -- nothing to release"
+            echo "tag=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
   build-windows-msvc:
     needs: resolve-tag
+    # `resolve-tag` succeeds with an empty `tag` when `auto-tag.yml`
+    # found the workspace version already tagged and pushed nothing new.
+    # There is nothing to build in that case, and every job downstream
+    # of this one is skipped transitively once this one is skipped.
+    if: ${{ needs.resolve-tag.outputs.tag != '' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.resolve-tag.outputs.tag }}
 
       - name: Install pinned toolchain
         run: rustup show
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
       - name: Install cargo-xwin
         run: cargo install cargo-xwin
@@ -107,7 +139,7 @@ jobs:
           mkdir -p dist
           cp target/x86_64-pc-windows-msvc/release/anne.exe dist/anne-x86_64-pc-windows-msvc.exe
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: windows-msvc-raw
           path: dist/
@@ -123,7 +155,7 @@ jobs:
     needs: build-windows-msvc
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: windows-msvc-raw
           path: dist
@@ -153,7 +185,7 @@ jobs:
           done
           rm -f codesign.pfx
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: windows-msvc-binaries
           path: dist/
@@ -165,9 +197,9 @@ jobs:
     needs: sign-windows
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: windows-msvc-binaries
           path: dist
@@ -183,16 +215,17 @@ jobs:
 
   build-musl:
     needs: resolve-tag
+    if: ${{ needs.resolve-tag.outputs.tag != '' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.resolve-tag.outputs.tag }}
 
       - name: Install pinned toolchain
         run: rustup show
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
       # `ring`/`blake3`/`libsqlite3-sys` (rusqlite's bundled sqlite3.c)
       # compile a handful of C sources as part of the build. Bare `clang`
@@ -280,18 +313,25 @@ jobs:
           cp target/x86_64-unknown-linux-musl/release/anne dist/anne-x86_64-unknown-linux-musl
           cp target/aarch64-unknown-linux-musl/release/anne dist/anne-aarch64-unknown-linux-musl
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: musl-binaries
           path: dist/
 
   sbom-and-checksums:
     needs: [resolve-tag, sign-windows, build-musl]
+    if: ${{ needs.resolve-tag.outputs.tag != '' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      # Check out the released tag, not the default branch: the SBOM
+      # describes `--source-version "${{ needs.resolve-tag.outputs.tag }}"`,
+      # so the tree it is generated against has to be the one that tag
+      # points at, not whatever `main` has since become.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.resolve-tag.outputs.tag }}
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: dist
           pattern: "*-binaries"
@@ -299,12 +339,37 @@ jobs:
 
       # Runs against the final artifact bytes (post-signing for the
       # Windows exes) -- an SBOM or checksum computed before signing would
-      # describe bytes nobody actually receives. Installed via syft's own
-      # documented install script rather than a wrapper action, since the
-      # exact CLI invocation below is what was verified locally against a
-      # real build in T29 (`syft dir:. -o cyclonedx-json=...`).
+      # describe bytes nobody actually receives.
+      #
+      # Installed via syft's own documented install script rather than a
+      # wrapper action, since the exact CLI invocation below is what was
+      # verified locally against a real build in T29 (`syft dir:. -o
+      # cyclonedx-json=...`).
+      #
+      # The script URL is pinned to a commit SHA rather than `main`, and
+      # the release tag is pinned explicitly rather than defaulting to
+      # "latest". Both matter: fetching the installer from a branch means
+      # its contents can change between the review that approved this
+      # line and the moment the runner executes it, and letting it pick
+      # "latest" means the SBOM is generated by a tool version nobody
+      # chose. Scorecard's Pinned-Dependencies check flags a
+      # `curl | sh` whose URL is not pinned to a commit SHA; this form
+      # satisfies it.
+      #
+      # Bump both together. The SHA is the commit of anchore/syft that
+      # last touched `install.sh`; the tag is the syft release to
+      # install.
+      #
+      # Both are written out literally rather than interpolated from
+      # `env:`. The pinned-dependencies check parses the shell script
+      # text, so a `${{ env.SYFT_INSTALL_SHA }}` would read as a
+      # variable rather than as a commit SHA -- and the check would
+      # (correctly) report the download as unpinned.
       - name: Install syft
-        run: curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+        run: |
+          curl -sSfL "https://raw.githubusercontent.com/anchore/syft/cc326e45a6213360266dda4b30cc68095946d676/install.sh" \
+            | sh -s -- -b /usr/local/bin v1.55.0
+          syft version
 
       - name: Generate CycloneDX SBOM
         run: |
@@ -316,7 +381,7 @@ jobs:
       - name: Write checksums
         run: cargo run -p xtask -- checksum write dist/SHA256SUMS.txt dist/anne-*
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-metadata
           path: |
@@ -325,22 +390,58 @@ jobs:
 
   publish-release:
     needs: [resolve-tag, smoke-test-windows, sbom-and-checksums]
+    if: ${{ needs.resolve-tag.outputs.tag != '' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      # Provenance attestations are written to the repository's own
+      # attestation store via the API, which the `attestations: write`
+      # scope covers. Without it the attest step below cannot publish.
+      attestations: write
+      id-token: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: dist
           pattern: "*-binaries"
           merge-multiple: true
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: release-metadata
           path: dist
 
-      - uses: softprops/action-gh-release@v2
+      # Attest the exact bytes that ship as release assets, not the
+      # source they were built from. `SHA256SUMS.txt` is the natural
+      # subject list: it was generated from the final post-signing
+      # artifacts in `sbom-and-checksums`, so its digests are the
+      # digests of the bytes a user actually downloads. `gh attestation
+      # verify` against the release asset then succeeds.
+      #
+      # `id-token: write` is what lets the action mint the OIDC token
+      # that binds this attestation to this workflow run -- without it
+      # the attestation would be unsigned and unverifiable.
+      #
+      # The bundle is copied to a `.intoto.jsonl` file and shipped as a
+      # release asset alongside the binaries. The attestation itself
+      # lives in GitHub's attestation store, which `gh attestation
+      # verify` queries -- but that store is only reachable for
+      # releases published after the attestation existed, so a user
+      # downloading an asset from an older release has nothing to check
+      # against. Shipping the bundle with the artifacts makes the
+      # provenance travel with the bytes: `gh attestation verify` falls
+      # back to a local bundle, and the file is a plain JSON Lines
+      # in-toto statement anyone can read.
+      - name: Attest release artifact provenance
+        id: attest
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-checksums: dist/SHA256SUMS.txt
+
+      - name: Ship the provenance bundle with the artifacts
+        run: cp "${{ steps.attest.outputs.bundle-path }}" "dist/anne-${{ needs.resolve-tag.outputs.tag }}.intoto.jsonl"
+
+      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           tag_name: ${{ needs.resolve-tag.outputs.tag }}
           files: dist/*

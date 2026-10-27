@@ -22,6 +22,19 @@ lcov.info
 tarpaulin-report.html
 /target/llvm-cov/
 
+# === Fuzzing (cargo-fuzz) ===
+# The fuzzer's working corpus and the crash inputs it finds. Neither is
+# committed: the working corpus is a cache that libFuzzer regenerates
+# from the committed seeds, and a crash input that turns out to be a
+# real defect gets a regression test in the crate itself.
+#
+# `fuzz/seeds/` IS committed -- those are the curated starting points
+# (real `/proc/net` rows, and the one crash input that found a real
+# decoder bug).
+/fuzz/artifacts/
+/fuzz/corpus/
+/fuzz/coverage/
+
 # === anne-de-breuil project-specific ===
 # Local, machine-specific config — the shipped default lives in assets/anne.default.toml
 /anne.toml

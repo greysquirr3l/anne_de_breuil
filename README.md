@@ -3,7 +3,7 @@
 [![CI](https://github.com/greysquirr3l/anne_de_breuil/actions/workflows/ci.yml/badge.svg)](https://github.com/greysquirr3l/anne_de_breuil/actions/workflows/ci.yml)
 [![Release](https://github.com/greysquirr3l/anne_de_breuil/actions/workflows/release.yml/badge.svg)](https://github.com/greysquirr3l/anne_de_breuil/actions/workflows/release.yml)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
-[![Rust 1.97.1](https://img.shields.io/badge/rust-1.97.1-orange.svg)](rust-toolchain.toml)
+[![Rust 1.99.1](https://img.shields.io/badge/rust-1.99.1-orange.svg)](rust-toolchain.toml)
 
 Enumerates the listening-port surface of a host and correlates each endpoint
 with its owning process, hosted services, binary signature, and the
@@ -32,6 +32,7 @@ view time.
 - [Cross-compilation](#cross-compilation)
 - [Release artifacts](#release-artifacts)
 - [Supply chain](#supply-chain)
+- [Fuzzing](#fuzzing)
 - [Fonts (report-html)](#fonts-report-html)
 - [License](#license)
 
@@ -44,6 +45,9 @@ authorised to assess — your own infrastructure, or a client's under an
 explicit engagement. Unauthorised port scanning and remote code execution
 against systems you don't control is illegal in most jurisdictions,
 independent of intent.
+
+Found a vulnerability? See [`SECURITY.md`](SECURITY.md) — reports go
+through GitHub's private vulnerability reporting, not public issues.
 
 ## Installation
 
@@ -74,6 +78,21 @@ certificate is configured for this repository (see
 [Release artifacts](#release-artifacts) — none is today, so current builds
 are unsigned and will be flagged by EDR on a real target host).
 
+### From crates.io
+
+```bash
+cargo install anne-de-breuil-cli
+```
+
+`publish-crate.yml` publishes both crates to crates.io on every tagged
+release: the library (`anne-de-breuil`) first, then the CLI
+(`anne-de-breuil-cli`). The order is a real constraint — the CLI
+depends on the library by version, and cargo resolves that version
+against the crates.io index, so the library has to be there first.
+
+Every pull request also dry-run-publishes both crates, so a packaging
+regression fails the PR rather than the release.
+
 ### From source
 
 ```bash
@@ -83,8 +102,7 @@ cargo build --release --workspace
 ./target/release/anne --help
 ```
 
-Requires the pinned toolchain — see [Toolchain](#toolchain). No `cargo
-install` crates.io path exists yet; this project isn't published there.
+Requires the pinned toolchain — see [Toolchain](#toolchain).
 
 ## What gets collected
 
@@ -462,12 +480,19 @@ repository root:
   Never installs anything itself (no `cargo-xwin`, no rustup targets) —
   every task assumes its own tools are already on `PATH`. See each
   module's own doc comment for what it does.
+- `fuzz` — `cargo-fuzz` targets for the parsers that handle data this
+  project does not control (the kernel's `/proc/net` socket table, and
+  raw `NETLINK_NETFILTER` responses). Deliberately **not** a workspace
+  member: fuzzing needs a nightly toolchain, and the workspace is
+  pinned to stable. See [`fuzz/README.md`](fuzz/README.md).
 
 ## Toolchain
 
-Pinned exactly to Rust 1.97.1 via `rust-toolchain.toml`. Never let this
-float to bare 1.97.0 — that release has a known LLVM miscompilation
-(rust-lang/rust#159035) fixed in the 1.97.1 patch.
+Pinned exactly to Rust 1.99.1 via `rust-toolchain.toml`. Never let this
+float to a bare patch release: 1.97.0 had a known LLVM miscompilation
+(rust-lang/rust#159035) that was only fixed in the 1.97.1 patch, and the
+same class of bug has recurred in other patch releases. Pin the full
+version.
 
 ## Build, test, lint
 
@@ -499,6 +524,10 @@ does; `just build-windows` is the `xtask build-windows` call from
 [`just`](https://github.com/casey/just) (`brew install just` / `cargo
 install just`) — entirely optional, every recipe is a thin wrapper over a
 `cargo`/`xtask` command already documented in this file.
+
+Contributing? See [`CONTRIBUTING.md`](CONTRIBUTING.md) — it covers the
+build/test/lint commands CI enforces, the commit conventions, and the
+two-account review requirement `main`'s branch protection imposes.
 
 ## Cross-compilation
 
@@ -573,6 +602,11 @@ workflow_run`) and re-derives the tag from the commit it ran against.
   published hash matches the bytes actually shipped. `checksum verify`
   re-hashes and compares — the mechanism the SSH transport's own
   push-side integrity check mirrors.
+- **Provenance** — `actions/attest-build-provenance` signs the shipped
+  artifacts' checksums with this workflow run's OIDC identity, and the
+  resulting in-toto bundle is published as an `.intoto.jsonl` release
+  asset next to the binaries. Verify with `gh attestation verify
+  <artifact> --repo greysquirr3l/anne_de_breuil`.
 - **Signing** — Windows binaries are Authenticode-signed via
   `osslsigncode` when `WINDOWS_CODESIGN_CERT`/`WINDOWS_CODESIGN_PASSWORD`
   repository secrets are configured. No certificate is configured for
@@ -586,6 +620,33 @@ workflow_run`) and re-derives the tag from the commit it ran against.
 
 `deny.toml` configures `cargo-deny` for advisory, license, ban, and source
 checks. `cargo audit` covers the RUSTSEC advisory database independently.
+
+Every release is attested: `release.yml` runs
+`actions/attest-build-provenance` over the shipped artifacts' checksums,
+and ships the resulting in-toto bundle as a `.intoto.jsonl` release asset
+alongside the binaries. The attestation also lands in GitHub's
+attestation store, so `gh attestation verify` works against either.
+
+Release artifacts are published to crates.io as well as GitHub Releases —
+see [Installation](#installation).
+
+## Fuzzing
+
+The parsers that read data this project does not control are fuzzed with
+`cargo-fuzz`:
+
+```bash
+cargo install cargo-fuzz --locked
+rustup toolchain install nightly --profile minimal
+mkdir -p fuzz/corpus/nft-wire
+cargo +nightly fuzz run nft-wire fuzz/corpus/nft-wire fuzz/seeds/nft-wire
+```
+
+Targets cover the `/proc/net/{tcp,udp}` socket-table parser and the
+hand-rolled nftables netlink decoder. CI smoke-runs each target on every
+push and pull request, so a target that stops compiling or starts
+tripping an assertion fails the build. See
+[`fuzz/README.md`](fuzz/README.md) for the details.
 
 ## Fonts (report-html)
 

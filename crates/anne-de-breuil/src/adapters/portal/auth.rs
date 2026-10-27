@@ -186,11 +186,15 @@ where
     /// deliberately not distinguishable from one another by an attacker,
     /// per this task's own instruction not to leak which failure mode
     /// occurred.
-    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+    fn from_request_parts(
+        parts: &mut Parts,
+        state: &S,
+    ) -> impl Future<Output = Result<Self, Self::Rejection>> + Send {
         let tokens = PortalTokens::from_ref(state);
-        bearer_token(&parts.headers)
+        let authenticated = bearer_token(&parts.headers)
             .and_then(|token| tokens.authenticate(token))
-            .ok_or(StatusCode::UNAUTHORIZED)
+            .ok_or(StatusCode::UNAUTHORIZED);
+        std::future::ready(authenticated)
     }
 }
 

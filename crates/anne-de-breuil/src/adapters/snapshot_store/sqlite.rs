@@ -221,8 +221,6 @@ fn list_by_host(conn: &rusqlite::Connection, host: HostId) -> Result<Vec<ScanId>
 
 #[cfg(test)]
 mod tests {
-    use core::str::FromStr as _;
-
     use super::*;
     use crate::domain::Endpoint;
     use crate::domain::bind_address::BindAddress;

@@ -672,7 +672,7 @@ mod tests {
         let _evidence = prober.probe(&server.endpoint()).await.unwrap();
 
         let methods = server.methods_seen();
-        assert!(!methods.is_empty());
+        assert_ne!(methods, Vec::<String>::new());
         assert!(methods.iter().all(|method| method == "GET"));
     }
 

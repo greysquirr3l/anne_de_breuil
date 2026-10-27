@@ -236,12 +236,33 @@ fn iter_nlattrs(buf: &[u8]) -> Vec<(u16, &[u8])> {
     out
 }
 
+/// Decodes an nftables NLA string attribute.
+///
+/// The kernel sends NLA strings as UTF-8 with a trailing NUL. That NUL
+/// is the terminator, not part of the value, so it is stripped before
+/// the UTF-8 check.
+///
+/// An attribute whose value is empty -- either a zero-length payload or
+/// a lone NUL -- decodes to `None`, not to `Some("")`. That distinction
+/// matters downstream: [`nft_chain_to_raw_rule`] substitutes `"?"` for
+/// a missing table or chain name, and it does so on `None` only. Had
+/// an empty attribute decoded to `Some("")`, the rule id would come out
+/// as `nftables//input` and the display name as `/input (nftables
+/// input chain policy)` -- a rule that names no table at all, which is
+/// worse than one that admits it does not know.
+///
+/// Found by the `nft-wire` fuzz target: a crafted `NEWCHAIN` message
+/// carrying a zero-length `NFTA_CHAIN_TABLE` attribute produced exactly
+/// that.
 fn decode_nla_string(value: &[u8]) -> Option<String> {
     let trimmed = if value.last() == Some(&0) {
         value.get(..value.len().saturating_sub(1))?
     } else {
         value
     };
+    if trimmed.is_empty() {
+        return None;
+    }
     core::str::from_utf8(trimmed).ok().map(ToOwned::to_owned)
 }
 
@@ -430,6 +451,40 @@ mod tests {
         fn push_nla_u32_be(buf: &mut Vec<u8>, nla_type: u16, v: u32) {
             push_nla_raw(buf, nla_type, &v.to_be_bytes());
         }
+
+        /// A `NEWCHAIN` message whose `NFTA_CHAIN_TABLE` attribute
+        /// carries an empty value -- a lone NUL terminator with no
+        /// content before it.
+        ///
+        /// The kernel does not emit this, but a hand-rolled decoder
+        /// reading a buffer it does not control has to cope with it:
+        /// the attribute is present, and its value is empty. Found by
+        /// the `nft-wire` fuzz target.
+        pub(super) fn synthetic_newchain_message_with_empty_table(
+            name: &str,
+            hooknum: u32,
+        ) -> Vec<u8> {
+            let mut attrs = Vec::new();
+            push_nla_string(&mut attrs, 1, ""); // NFTA_CHAIN_TABLE, empty
+            push_nla_string(&mut attrs, 3, name); // NFTA_CHAIN_NAME
+
+            let mut hook_nested = Vec::new();
+            push_nla_u32_be(&mut hook_nested, 1, hooknum); // NFTA_HOOK_HOOKNUM
+            push_nla_raw(&mut attrs, 4 | 0x8000, &hook_nested); // NFTA_CHAIN_HOOK, nested
+
+            let mut payload = vec![0u8, 0, 0, 0]; // nfgenmsg header
+            payload.extend_from_slice(&attrs);
+
+            let mut msg = Vec::new();
+            let total_len = 16 + payload.len();
+            msg.extend_from_slice(&u32::try_from(total_len).unwrap_or(0).to_le_bytes());
+            msg.extend_from_slice(&NEWCHAIN_MSG_TYPE.to_le_bytes());
+            msg.extend_from_slice(&2u16.to_le_bytes()); // flags: NLM_F_MULTI
+            msg.extend_from_slice(&0u32.to_le_bytes()); // seq
+            msg.extend_from_slice(&0u32.to_le_bytes()); // pid
+            msg.extend_from_slice(&payload);
+            msg
+        }
     }
 
     #[test]
@@ -497,12 +552,56 @@ mod tests {
         assert_eq!(rules[0].direction, "Inbound");
     }
 
+    /// A zero-length string attribute must decode to `None`, not to
+    /// `Some("")`.
+    ///
+    /// The distinction is load-bearing: `nft_chain_to_raw_rule`
+    /// substitutes `"?"` for a missing table or chain name, and it does
+    /// so on `None` only. An empty attribute that decoded to
+    /// `Some("")` produced a rule id of `nftables//input` -- a rule
+    /// that names no table, which reads as a real rule but is not one.
+    ///
+    /// Found by the `nft-wire` fuzz target.
+    #[test]
+    fn empty_string_attribute_decodes_to_absent_not_empty() {
+        assert_eq!(super::decode_nla_string(&[]), None);
+        assert_eq!(super::decode_nla_string(&[0]), None);
+        // A lone NUL is a terminator with no content before it.
+        assert_eq!(super::decode_nla_string(b"\0"), None);
+        // A real string still decodes, with its terminator stripped.
+        assert_eq!(
+            super::decode_nla_string(b"filter\0"),
+            Some("filter".to_owned())
+        );
+    }
+
+    /// The end-to-end consequence of the above: a `NEWCHAIN` message
+    /// carrying an empty `NFTA_CHAIN_TABLE` must produce a rule that
+    /// admits it does not know the table, not one that names an empty
+    /// table.
+    #[test]
+    fn chain_with_empty_table_name_does_not_produce_a_malformed_rule_id() {
+        let buf = fixtures::synthetic_newchain_message_with_empty_table("input", 1);
+        let outcome = parse_nl_buffer(&buf);
+        let chain = outcome.chains.first().expect("one chain decoded");
+        assert_eq!(chain.table, None, "an empty table attribute is absent");
+        assert_eq!(chain.name.as_deref(), Some("input"));
+
+        let rule = super::nft_chain_to_raw_rule(chain).expect("an input chain yields a rule");
+        assert!(
+            !rule.rule_id.contains("//"),
+            "rule id names an empty table: {}",
+            rule.rule_id
+        );
+        assert!(rule.rule_id.contains('?'), "rule id is {}", rule.rule_id);
+    }
+
     #[test]
     fn error_message_with_eperm_classifies_as_permission_denied() {
         let outcome = parse_nl_buffer(&fixtures::error_message(-1));
         assert!(outcome.done);
         assert_eq!(outcome.error, Some(RulesetQueryError::PermissionDenied));
-        assert!(outcome.chains.is_empty());
+        assert_eq!(outcome.chains, Vec::new());
     }
 
     #[test]

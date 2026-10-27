@@ -584,7 +584,7 @@ mod tests {
             Exposure::SpecificInterface,
             Exposure::AllInterfaces,
         ] {
-            assert!(!exposure_label(exposure).is_empty());
+            assert_ne!(exposure_label(exposure), "");
             assert!(exposure_css_class(exposure).starts_with("exposure-"));
         }
     }
@@ -598,7 +598,7 @@ mod tests {
             ReachabilityView::DefaultAction,
             ReachabilityView::Indeterminate,
         ] {
-            assert!(!reachability_label(reachability).is_empty());
+            assert_ne!(reachability_label(reachability), "");
             assert!(reachability_css_class(reachability).starts_with("reachability-"));
         }
     }
@@ -611,7 +611,7 @@ mod tests {
             SeverityView::High,
             SeverityView::Critical,
         ] {
-            assert!(!severity_label(severity).is_empty());
+            assert_ne!(severity_label(severity), "");
             assert!(severity_css_class(severity).starts_with("severity-"));
         }
     }
@@ -619,7 +619,7 @@ mod tests {
     #[test]
     fn fidelity_label_and_class_cover_every_variant() {
         for fidelity in [Fidelity::Authoritative, Fidelity::Inferred] {
-            assert!(!fidelity_label(fidelity).is_empty());
+            assert_ne!(fidelity_label(fidelity), "");
             assert!(fidelity_css_class(fidelity).starts_with("fidelity-"));
         }
     }
@@ -631,7 +631,7 @@ mod tests {
             TargetStrategy::Probe,
             TargetStrategy::LocalOnly,
         ] {
-            assert!(!target_strategy_label(strategy).is_empty());
+            assert_ne!(target_strategy_label(strategy), "");
         }
     }
 
@@ -652,7 +652,7 @@ mod tests {
             SecretCategory::AwsKeyId,
             SecretCategory::HighEntropyToken,
         ] {
-            assert!(!secret_category_label(category).is_empty());
+            assert_ne!(secret_category_label(category), "");
         }
     }
 
@@ -719,7 +719,7 @@ mod tests {
         let host = model.hosts.into_iter().next().expect("one host");
         let view = host_section_template(&host, 0);
         let row: &EndpointRow = view.by_port.first().expect("one endpoint");
-        assert!(!row.command_line_redaction_labels.is_empty());
+        assert_ne!(row.command_line_redaction_labels, Vec::<String>::new());
         assert!(
             row.command_line
                 .as_deref()

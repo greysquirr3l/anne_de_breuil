@@ -5,7 +5,7 @@ members = ["crates/anne-de-breuil", "crates/anne-de-breuil-cli", "xtask"]
 [workspace.package]
 version = "0.3.1"
 edition = "2024"
-rust-version = "1.97.1"
+rust-version = "1.99.1"
 license = "MIT OR Apache-2.0"
 description = "Listening-port surface enumeration correlated with process, service, and firewall policy."
 repository = "https://github.com/greysquirr3l/anne_de_breuil"
@@ -60,7 +60,7 @@ netlink-sys = { version = "0.8", default-features = false }
 # type this project's own fixtures and recommended setup use; dropping RSA
 # support keeps `cargo audit` clean by removing the vulnerable dependency
 # rather than suppressing the finding.
-russh = { version = "0.62.7", default-features = false, features = [
+russh = { version = "0.64.1", default-features = false, features = [
   "ring",
   "flate2",
 ] }
@@ -92,7 +92,17 @@ csv = "1.4.0"
 # derive, std, urlencode) is exactly what's needed; the `serde_json`
 # feature is left off since nothing here round-trips a template context
 # through JSON.
-askama = "0.16.0"
+# `default-features = false` drops askama's `config` feature, which is the
+# only path to `basic-toml` -- an unmaintained crate (RUSTSEC-2026-0374)
+# that `cargo deny` rejects. The `config` feature exists to support
+# `askama.toml` project-config files; this crate has none, and the
+# templates under `crates/anne-de-breuil/templates/` use no filter or
+# syntax that needs it. `derive` + `std` are what the templates actually
+# require. Revisit if a template ever grows an `askama.toml`.
+askama = { version = "0.16.0", default-features = false, features = [
+  "derive",
+  "std",
+] }
 # The `portal` feature's HTTP server. `http2` is left off deliberately --
 # this is an internal fleet-ops tool, not a public-facing service under
 # load that needs multiplexing; `tokio`/`http1` cover it with a smaller

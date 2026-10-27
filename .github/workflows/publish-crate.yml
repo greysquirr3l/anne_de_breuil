@@ -1,0 +1,207 @@
+name: publish-crate
+
+# Publishes the library and the CLI to crates.io.
+#
+# Why this exists at all: until now the project was distributed only as
+# prebuilt binaries on the GitHub Releases page, and the README said so
+# ("No `cargo install` crates.io path exists yet"). That left two gaps:
+#
+#   * `cargo install anne-de-breuil-cli` was impossible, so a Rust
+#     developer could not get the tool without either building from
+#     source (needs the pinned 1.99.1 toolchain and a full dependency
+#     build) or downloading a platform binary by hand.
+#   * Scorecard's Packaging check scored -1 ("packaging workflow not
+#     detected") because it looks for a workflow that runs
+#     `cargo publish` -- a project that ships only release binaries
+#     scores -1 on that check by construction.
+#
+# The `verify` job is the one that matters for day-to-day use: it
+# packages and dry-run-publishes every crate on every PR, so a
+# packaging regression (a missing file in `include`, a bad `readme`
+# path, a dependency that cannot resolve) fails the PR instead of
+# surfacing at tag time when there is no way to fix it.
+#
+# Publishing itself is gated on the `crates-io` secret. The workflow
+# runs the publish step only when that secret is present, so the
+# repository is safe to run this file in before the owner has claimed
+# the crate names on crates.io.
+
+on:
+  pull_request:
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "crates/**"
+      - ".github/workflows/publish-crate.yml"
+  push:
+    branches: [main]
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "crates/**"
+      - ".github/workflows/publish-crate.yml"
+  # A tag is what actually triggers the publish. `auto-tag.yml` pushes
+  # the tag, and this workflow reacts to it -- the same
+  # `workflow_run` shape `release.yml` uses, and for the same reason:
+  # a tag pushed with the default GITHUB_TOKEN never fires another
+  # workflow's `on: push: tags`.
+  workflow_run:
+    workflows: [auto-tag]
+    types: [completed]
+  workflow_dispatch:
+
+# Read-only by default. Only the `publish` job, which talks to the
+# crates.io registry, needs more -- and it needs the registry token as
+# a secret, not a permission.
+permissions:
+  contents: read
+
+concurrency:
+  # One publish at a time. Two concurrent publishes of the same crate
+  # version race, and the loser gets a confusing "already uploaded"
+  # error that looks like a build failure.
+  group: publish-crate-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: verify crates are publishable
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install pinned toolchain
+        run: rustup show active-toolchain || rustup toolchain install
+
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+
+      # `cargo publish --dry-run` does everything the real publish
+      # does -- it builds the .crate tarball, verifies it compiles from
+      # the packaged sources alone, and checks every metadata field
+      # against crates.io's rules -- and then stops before the upload.
+      # Catching a packaging failure here, on the PR that caused it,
+      # is the entire point of this job.
+      #
+      # The `--config patch.crates-io...` line is what makes the CLI
+      # crate verifiable at all. `anne-de-breuil-cli` depends on
+      # `anne-de-breuil` by path+version, and cargo resolves that
+      # version against the crates.io index -- where the library does
+      # not exist yet. Patching the dependency to the local path
+      # makes cargo verify the CLI crate against the same source the
+      # library will be published from, so a dry run of both crates
+      # agrees with a real publish of the library followed by the CLI.
+      #
+      # The library crate is verified first and separately, because it
+      # is the one that gets published first: crates.io rejects a
+      # publish of a crate whose dependency version is not yet
+      # available, so the ordering is a real constraint and not a
+      # stylistic one.
+      - name: Verify the library crate packages
+        run: cargo publish -p anne-de-breuil --dry-run --allow-dirty
+
+      - name: Verify the CLI crate packages
+        run: |
+          cargo publish -p anne-de-breuil-cli --dry-run --allow-dirty \
+            --config 'patch.crates-io.anne-de-breuil.path="crates/anne-de-breuil"'
+
+  publish:
+    name: publish to crates.io
+    # Only the tagged run publishes. A `push` to `main` or a pull
+    # request runs `verify` and nothing else.
+    if: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' }}
+    needs: [verify]
+    runs-on: ubuntu-latest
+    # Downloading an artifact from another workflow's run needs
+    # `actions: read`; the workflow-level `permissions: contents: read`
+    # zeroes every scope it does not name.
+    permissions:
+      actions: read
+      contents: read
+    # The token lives at job level so the step-level `if:` guards can
+    # read it. A step-level `if:` cannot test `secrets.*` directly --
+    # the `secrets` context is not populated in that expression -- but
+    # it can test a job-level `env:` that references one, which is
+    # what makes "skip cleanly when unconfigured" expressible.
+    env:
+      CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+    steps:
+      # Read the tag `auto-tag.yml` resolved. A `workflow_run` event
+      # carries no access to the triggering workflow's job outputs, so
+      # the artifact is the only channel -- the same one `release.yml`
+      # uses. The literal `none` is the "no new tag" signal: it means
+      # `auto-tag.yml` decided the version was already tagged and pushed
+      # nothing, so there is nothing to publish.
+      - name: Download the tag resolved by the tagging workflow
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-tag
+          path: ${{ runner.temp }}
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve the tag to publish
+        id: tag
+        run: |
+          set -euo pipefail
+          tag=$(tr -d '[:space:]' < "$RUNNER_TEMP/release-tag.txt")
+          if [ "$tag" = "none" ] || [ -z "$tag" ]; then
+            echo "::notice::no new tag was created by the tagging workflow; nothing to publish to crates.io"
+            echo "tag=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ steps.tag.outputs.tag }}
+
+      - name: Install pinned toolchain
+        run: rustup show active-toolchain || rustup toolchain install
+
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+
+      # No `--allow-dirty` here, unlike the dry run above. The checkout
+      # is a clean tag, so the tree should be clean; if it is not, the
+      # publish must fail loudly rather than ship a crate whose
+      # contents differ from what was reviewed and tested.
+      #
+      # crates.io's own guidance is to use a scoped token with the
+      # `publish-new-crate` scope for the first upload and `publish`
+      # for subsequent ones. The secret is optional here: if the
+      # repository owner has not configured it yet, the job reports
+      # that and exits cleanly rather than failing the release
+      # pipeline. A secret cannot be tested directly in a step-level
+      # `if:` -- `secrets` is not populated in that expression -- so
+      # the token is passed as a job-level `env:` and the guard reads
+      # it from there.
+      - name: Publish the library crate
+        if: ${{ steps.tag.outputs.tag != '' && env.CARGO_REGISTRY_TOKEN != '' }}
+        run: |
+          cargo publish -p anne-de-breuil
+
+      # The CLI crate's dependency on the library resolves against the
+      # crates.io index, so the library's publish has to have landed
+      # first. crates.io's index is updated within seconds of an
+      # upload, but "within seconds" is not "immediately" -- the
+      # retry loop below waits for the index to catch up rather than
+      # failing the release on a race.
+      - name: Publish the CLI crate
+        if: ${{ steps.tag.outputs.tag != '' && env.CARGO_REGISTRY_TOKEN != '' }}
+        run: |
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            if cargo publish -p anne-de-breuil-cli; then
+              exit 0
+            fi
+            echo "::notice::crate publish attempt $attempt failed; the library crate may not be in the crates.io index yet. Retrying in 30s."
+            sleep 30
+          done
+          echo "::error::could not publish anne-de-breuil-cli after 10 attempts -- the library crate is probably not published yet"
+          exit 1
+
+      - name: Report that nothing was published
+        if: ${{ steps.tag.outputs.tag == '' || env.CARGO_REGISTRY_TOKEN == '' }}
+        run: |
+          echo "::notice::nothing was published to crates.io (no new tag, or CARGO_REGISTRY_TOKEN is not configured for this repository). The GitHub Release artifacts are unaffected."

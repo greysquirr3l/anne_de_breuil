@@ -191,7 +191,7 @@ mod tests {
         );
         assert!(endpoint.process_id.is_none());
         assert!(endpoint.process_path.is_none());
-        assert!(endpoint.hosted_services.is_empty());
+        assert_eq!(endpoint.hosted_services, Vec::new());
         assert!(endpoint.command_line.is_none());
     }
 

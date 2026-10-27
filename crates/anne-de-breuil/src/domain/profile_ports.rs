@@ -230,7 +230,7 @@ mod tests {
             RuleAction::Block,
         )];
         let summary = summarize_inbound_ports(&[], &profiles);
-        assert!(summary.first().expect("one profile").allowed.is_empty());
+        assert_eq!(summary.first().expect("one profile").allowed, Vec::new());
     }
 
     #[test]

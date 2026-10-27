@@ -93,3 +93,48 @@ fn only_push_and_pull_request_triggers_are_declared() {
     assert!(!on_block.contains("workflow_run"));
     assert!(!on_block.contains("pull_request_target"));
 }
+
+/// The fuzz job must use nightly only for the fuzz build, and the
+/// stable pin must not have been relaxed to accommodate it.
+///
+/// `cargo-fuzz` needs `-Z sanitizer=address`, which is nightly-only.
+/// The obvious way to make that work is to move the pin to nightly --
+/// which would silently give up the exact-version pin that
+/// `rust-toolchain.toml` exists to enforce, and would put every other
+/// job in this workflow on an unpinned toolchain.
+///
+/// The fuzz crate is deliberately outside the workspace so the nightly
+/// toolchain is reached with an explicit `cargo +nightly` on the one
+/// command that needs it, rather than by changing the pin.
+#[test]
+fn the_fuzz_job_uses_nightly_explicitly_without_moving_the_pin() {
+    let workflow = CI_WORKFLOW
+        .lines()
+        .filter(|line| !line.trim_start().starts_with('#'))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    // The nightly toolchain is requested explicitly, by name.
+    assert!(
+        workflow.contains("rustup toolchain install nightly"),
+        "the fuzz job must install the nightly toolchain explicitly"
+    );
+    // And used with the `+nightly` channel override, not by relying on
+    // a default-toolchain change.
+    assert!(
+        workflow.contains("cargo +nightly fuzz"),
+        "the fuzz commands must name the nightly toolchain explicitly"
+    );
+    // The build/test/lint job must stay on the pinned toolchain.
+    assert!(
+        !workflow.contains("cargo +nightly build")
+            && !workflow.contains("cargo +nightly test")
+            && !workflow.contains("cargo +nightly clippy"),
+        "only the fuzz commands may use nightly -- the build, test, and clippy jobs must stay on the pinned toolchain"
+    );
+    // And no job may install nightly as the default.
+    assert!(
+        !workflow.contains("rustup default nightly"),
+        "no job may change the default toolchain to nightly"
+    );
+}

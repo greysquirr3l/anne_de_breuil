@@ -748,7 +748,7 @@ mod tests {
 
         let record = probe_tls(&server.endpoint()).await.unwrap();
 
-        assert!(!record.certificates.is_empty());
+        assert_ne!(record.certificates, Vec::new());
         assert!(record.certificates[0].self_signed);
     }
 

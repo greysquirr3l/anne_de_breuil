@@ -32,12 +32,12 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install pinned toolchain
         run: rustup show
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
       - name: Build
         run: cargo build --workspace --all-features
@@ -58,8 +58,8 @@ jobs:
     name: cargo-deny (advisories, licenses, bans, sources)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: EmbarkStudios/cargo-deny-action@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
 
   codeql:
     name: CodeQL
@@ -68,16 +68,64 @@ jobs:
       security-events: write
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install pinned toolchain
         run: rustup show
 
-      - uses: github/codeql-action/init@v3
+      - uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
         with:
           languages: rust
 
       - name: Build for analysis
         run: cargo build --workspace --all-features
 
-      - uses: github/codeql-action/analyze@v3
+      - uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+
+  fuzz:
+    name: fuzz
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # `cargo-fuzz` needs a nightly toolchain: it builds the libFuzzer
+      # harness with `-Z sanitizer=address`, which is a nightly-only
+      # feature. The workspace itself stays pinned to stable 1.99.1 --
+      # the fuzz crate lives outside the workspace precisely so that
+      # this job can use nightly without touching the pin that
+      # `build-test-lint` relies on.
+      - name: Install nightly toolchain
+        run: rustup toolchain install nightly --profile minimal
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+
+      - name: Build the fuzz targets
+        run: cargo +nightly fuzz build
+
+      # A short smoke run, not a long fuzzing campaign. The point is to
+      # fail the build the moment a target stops compiling or starts
+      # tripping an assertion -- the continuous fuzzing that actually
+      # finds bugs is a local or scheduled activity, not something a
+      # pull request should wait on.
+      #
+      # Two corpus directories are passed. `fuzz/seeds/<target>/` holds
+      # the curated starting points (real `/proc/net` rows, and the one
+      # crash input that found a real decoder bug) and is committed.
+      # `fuzz/corpus/<target>/` is the fuzzer's working corpus -- it is
+      # gitignored, because libFuzzer writes every new interesting
+      # input there and that churn does not belong in the repository.
+      # libFuzzer reads seeds from all of them and writes to the first.
+      - name: Smoke-run the fuzz targets
+        run: |
+          set -euo pipefail
+          for target in proc-net nft-wire; do
+            echo "::group::fuzz $target"
+            # libFuzzer requires the corpus directory it writes to to
+            # already exist; it is gitignored, so CI has to create it.
+            mkdir -p "fuzz/corpus/$target"
+            cargo +nightly fuzz run "$target" \
+              "fuzz/corpus/$target" "fuzz/seeds/$target" \
+              -- -max_total_time=60 -rss_limit_mb=4096
+            echo "::endgroup::"
+          done

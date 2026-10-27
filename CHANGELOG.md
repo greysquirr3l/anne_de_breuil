@@ -28,6 +28,44 @@ Task identifiers (`T01`–`T32`) cross-reference the entries in
   nothing here is required to build, test, or release the project.
   Shebang recipes shellcheck clean.
   [`Justfile`](Justfile).
+- **crates.io distribution** — `publish-crate.yml` publishes the
+  library (`anne-de-breuil`) and then the CLI (`anne-de-breuil-cli`) to
+  crates.io on every tagged release, making `cargo install
+  anne-de-breuil-cli` work. The library goes first because the CLI
+  depends on it by version and cargo resolves that version against the
+  crates.io index. Every pull request also dry-run-publishes both
+  crates, so a packaging regression fails the PR rather than the
+  release. The publish step is a no-op until a `CARGO_REGISTRY_TOKEN`
+  secret is configured for the repository.
+  [`.github/workflows/publish-crate.yml`](.github/workflows/publish-crate.yml).
+- **`SECURITY.md`** — a security policy covering supported versions, a
+  private reporting channel (GitHub's private vulnerability reporting),
+  what is in scope for a read-only inventory tool, and the concrete
+  credential-handling guarantees.
+  [`SECURITY.md`](SECURITY.md).
+- **Fuzz targets** — `cargo-fuzz` targets for the two parsers that read
+  data this project does not control: the kernel's `/proc/net` socket
+  table and raw `NETLINK_NETFILTER` responses. The fuzz crate is
+  deliberately outside the workspace (fuzzing needs a nightly
+  toolchain; the workspace is pinned to stable 1.99.1). CI smoke-runs
+  each target on every push and pull request.
+  [`fuzz/README.md`](fuzz/README.md).
+- **Release provenance bundle** — `release.yml` now ships the
+  `attest-build-provenance` in-toto bundle as an `.intoto.jsonl` release
+  asset alongside the binaries, so the provenance travels with the bytes
+  instead of only living in GitHub's attestation store.
+
+### Fixed
+
+- **nftables chain with an empty table name produced a malformed rule
+  id** — `nft_wire::decode_nla_string` decoded a zero-length NLA string
+  attribute as `Some("")` rather than `None`. The consumer
+  (`nft_chain_to_raw_rule`) substitutes `"?"` for an unknown table or
+  chain name, but does so on `None` only, so an empty attribute
+  produced a rule id of `nftables//input` — a rule that names no table
+  at all, which reads as a real rule but is not one. Found by the new
+  `nft-wire` fuzz target; fixed with a regression test.
+  [`nft_wire.rs`](crates/anne-de-breuil/src/adapters/linux_collector/nft_wire.rs).
 
 ## [0.3.1] — 2026-08-24
 

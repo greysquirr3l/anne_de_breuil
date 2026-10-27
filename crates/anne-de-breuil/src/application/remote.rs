@@ -79,6 +79,15 @@ pub enum TransportError {
     /// signal `--accept-new` must not paper over.
     #[error("host key has changed since it was last recorded in known_hosts")]
     HostKeyChanged,
+    /// The host presented an OpenSSH *certificate* rather than a bare
+    /// public key. A certificate is vouched for by a certificate
+    /// authority, not by the `known_hosts` book this transport trusts
+    /// against -- the key inside it is not the key the operator ever
+    /// recorded for that host. Verifying one would need a CA trust
+    /// store this transport does not have, so the connection fails
+    /// closed rather than accepting an authority nobody vouched for.
+    #[error("host presented an OpenSSH certificate, which this transport cannot verify")]
+    HostKeyCertificateUnsupported,
     /// Captured stdout reached the configured byte cap before the remote
     /// command finished producing output. The command's actual output is
     /// discarded rather than silently truncated and trusted.
@@ -317,7 +326,7 @@ mod tests {
         };
         assert_eq!(output.status, 0);
         assert_eq!(output.stdout, b"hello");
-        assert!(output.stderr.is_empty());
+        assert_eq!(output.stderr, Vec::<u8>::new());
         assert_eq!(output.duration, core::time::Duration::from_millis(5));
     }
 

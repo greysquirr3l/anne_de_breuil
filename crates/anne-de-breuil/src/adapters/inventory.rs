@@ -124,7 +124,7 @@ mod tests {
         assert!(matches!(inventory[1].auth, AuthMethod::KeyFile(_)));
         assert!(matches!(inventory[2].auth, AuthMethod::KeyFromKeyring(_)));
         assert!(inventory[1].jump.is_some());
-        assert!(!inventory[0].tags.is_empty());
+        assert_ne!(inventory[0].tags, Vec::<String>::new());
     }
 
     #[test]

@@ -12,8 +12,30 @@ Task identifiers (`T01`–`T32`) cross-reference the entries in
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
 
+- **The Scorecard workflow could never publish anything** — it had
+  been failing every week since it was added, and its analysis results
+  were never reaching either the Code Scanning tab or
+  `api.scorecard.dev`. Two separate causes:
+
+  - The job held only `permissions: read-all`, but
+    `ossf/scorecard-action` v2 needs `id-token: write` to mint the
+    OIDC token that signs the published results. Without it the action
+    fell back to sigstore's interactive device flow, which no runner
+    can complete, so the job spent fifteen minutes in a retry loop and
+    then failed. `security-events: write` was missing for the same
+    reason — the SARIF had nowhere to go.
+  - The workflow had no `upload-sarif` step. The action writes the
+    SARIF file but does not publish it, so even a successful run would
+    have left the Security tab empty.
+
+  The write scopes now sit on the action's job, where Scorecard's own
+  API requires them (it rejects a workflow whose global permissions
+  include any `write` scope), and the SARIF is uploaded with its own
+  `ossf-scorecard` category so it does not collide with the CodeQL
+  analysis `ci.yml` uploads.   A regression test pins the shape.
+  [`.github/workflows/scorecard.yml`](.github/workflows/scorecard.yml).
 ## [0.4.0] — 2026-10-27
 
 ### Added
@@ -25,8 +47,9 @@ Nothing yet.
   depends on it by version and cargo resolves that version against the
   crates.io index. Every pull request also dry-run-publishes both
   crates, so a packaging regression fails the PR rather than the
-  release. The publish step is a no-op until a `CARGO_REGISTRY_TOKEN`
-  secret is configured for the repository.
+  release. `0.4.0` is the first version published; the publish step
+  skips cleanly while `CARGO_REGISTRY_TOKEN` is not configured for the
+  repository, so the workflow is safe to run before that secret exists.
   [`.github/workflows/publish-crate.yml`](.github/workflows/publish-crate.yml).
 - **`SECURITY.md`** — a security policy covering supported versions, a
   private reporting channel (GitHub's private vulnerability reporting),

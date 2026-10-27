@@ -670,7 +670,7 @@ fn scorecard_workflow_is_pinned_explicit_and_publishes_sarif() {
     );
     assert!(
         SCORECARD_WORKFLOW.contains("publish_results: true"),
-        "scorecard.yml must publish SARIF to the Code Scanning tab"
+        "scorecard.yml must publish its results to api.scorecard.dev"
     );
     assert!(
         SCORECARD_WORKFLOW.contains("results_format: sarif"),
@@ -728,5 +728,59 @@ fn auto_tag_scopes_its_write_grant_to_the_job_that_needs_it() {
     assert!(
         auto_tag_workflow.contains("contents: write"),
         "the job that pushes the tag must hold contents: write explicitly"
+    );
+}
+
+/// The Scorecard job needs two write scopes, and it needs them at the
+/// *job* level. This is not a style preference -- it is the only shape
+/// Scorecard's own API accepts, and the shape it requires is exactly
+/// what the workflow was missing.
+///
+/// The failure this pins down is a real one that shipped: with
+/// `publish_results: true` and no `id-token: write`, the action cannot
+/// mint the OIDC token that signs the results, so it falls back to
+/// sigstore's interactive device flow. On a runner there is nobody to
+/// complete that flow, so the job sat in a retry loop for fifteen
+/// minutes and then failed. The run before this fix had been failing
+/// every week since the workflow was added.
+///
+/// Three properties have to hold together, and each one is a way the
+/// workflow could silently regress:
+///
+///   1. `id-token: write` and `security-events: write` are present on
+///      the job. Without the first the publish fails; without the second
+///      the SARIF never reaches the Code Scanning tab.
+///   2. Neither is granted at the workflow level. Scorecard's API
+///      rejects a workflow whose global permissions include any `write`
+///      scope, so moving them up would trade one failure for another.
+///   3. The SARIF is actually uploaded. `ossf/scorecard-action` writes
+///      the file but does not publish it -- `upload-sarif` does that --
+///      so a workflow that stops short of the upload step produces a
+///      green run with an empty Security tab.
+#[test]
+fn scorecard_workflow_carries_the_scopes_its_action_needs() {
+    assert!(
+        SCORECARD_WORKFLOW.contains("id-token: write"),
+        "the scorecard job must hold id-token: write -- without it the action falls back to \
+         sigstore's interactive device flow and the publish step fails"
+    );
+    assert!(
+        SCORECARD_WORKFLOW.contains("security-events: write"),
+        "the scorecard job must hold security-events: write so upload-sarif can publish to the \
+         Code Scanning tab"
+    );
+    assert!(
+        SCORECARD_WORKFLOW.contains("github/codeql-action/upload-sarif@"),
+        "scorecard.yml must upload the SARIF it produced -- ossf/scorecard-action writes the \
+         file but does not publish it, so without this step the Security tab stays empty"
+    );
+    // A distinct category keeps the Scorecard upload from colliding with
+    // ci.yml's CodeQL upload: Code Scanning matches a new analysis to an
+    // existing one by category, and an uncategorised upload would race
+    // CodeQL for the same slot and one of the two would be overwritten.
+    assert!(
+        SCORECARD_WORKFLOW.contains("category: ossf-scorecard"),
+        "the scorecard upload must declare its own category so it does not collide with the \
+         CodeQL analysis uploaded by ci.yml"
     );
 }

@@ -84,6 +84,18 @@ git config --local credential.https://github.com.helper \
   '!/opt/homebrew/bin/gh auth git-credential'
 ```
 
+Then select the account that will do the pushing before you push:
+
+```bash
+gh auth switch --hostname github.com --user <pusher>
+```
+
+Check it took effect before pushing — `gh auth status` prints
+`Active account: true` against the account you want. A push that
+reuses an identical commit is a no-op and is not re-attributed, so if
+the wrong account pushed first, amend the commit (a new SHA) and
+push again as the right one.
+
 **2. The head commit must be authored and committed by the pushing
 account**, and signed with a key that account has registered with
 GitHub, so the commit attributes to the pusher rather than to the

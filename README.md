@@ -32,6 +32,7 @@ view time.
 - [Cross-compilation](#cross-compilation)
 - [Release artifacts](#release-artifacts)
 - [Supply chain](#supply-chain)
+- [Merging](#merging)
 - [Fuzzing](#fuzzing)
 - [Fonts (report-html)](#fonts-report-html)
 - [License](#license)
@@ -625,6 +626,31 @@ attestation store, so `gh attestation verify` works against either.
 
 Release artifacts are published to crates.io as well as GitHub Releases —
 see [Installation](#installation).
+
+## Merging
+
+`main` is protected by an OSSF branch-protection ruleset
+(`rulesets/25918976`). It requires signed commits, linear history, the
+CI status checks, and an approving review that satisfies three
+conditions at once:
+
+- at least one approving review,
+- that review must come from a **code owner** — `.github/CODEOWNERS`
+  lists `@greysquirr3l` for every path, so today there is exactly one
+  eligible reviewer, and
+- that review must come from **someone other than the author of the
+  most recent commit** on the branch (`require_last_push_approval`).
+
+The third condition is the one that surprises people. GitHub decides
+who "pushed last" from the **head commit's author attribution**, not
+from the push event. So if the head commit is attributed to the same
+account that is approving it, the approval does not count — even if a
+different account performed the actual `git push`.
+
+With one code owner, that makes the head commit's attribution
+load-bearing: it must belong to an account other than the approver.
+Practically, author the final commit with the account that will push
+it, and let the code owner approve.
 
 ## Fuzzing
 

@@ -32,7 +32,6 @@ view time.
 - [Cross-compilation](#cross-compilation)
 - [Release artifacts](#release-artifacts)
 - [Supply chain](#supply-chain)
-- [Merging](#merging)
 - [Fuzzing](#fuzzing)
 - [Fonts (report-html)](#fonts-report-html)
 - [License](#license)
@@ -526,6 +525,10 @@ does; `just build-windows` is the `xtask build-windows` call from
 install just`) — entirely optional, every recipe is a thin wrapper over a
 `cargo`/`xtask` command already documented in this file.
 
+Contributing? See [`CONTRIBUTING.md`](CONTRIBUTING.md) — it covers the
+build/test/lint commands CI enforces, the commit conventions, and the
+two-account review requirement `main`'s branch protection imposes.
+
 ## Cross-compilation
 
 Local development happens on macOS. The pinned toolchain carries four
@@ -626,49 +629,6 @@ attestation store, so `gh attestation verify` works against either.
 
 Release artifacts are published to crates.io as well as GitHub Releases —
 see [Installation](#installation).
-
-## Merging
-
-`main` is protected by an OSSF branch-protection ruleset
-(`rulesets/25918976`). It requires signed commits, linear history, the
-CI status checks, and an approving review that satisfies three
-conditions at once:
-
-- at least one approving review,
-- that review must come from a **code owner** — `.github/CODEOWNERS`
-  lists `@greysquirr3l` for every path, so today there is exactly one
-  eligible reviewer, and
-- that review must come from **someone other than the author of the
-  most recent commit** on the branch (`require_last_push_approval`).
-
-The third condition is the one that surprises people. GitHub decides
-who "pushed last" from the **account that performed the `git push`**,
-not from the commit's author or committer. If the same account pushes
-the branch and then approves it, the approval does not count.
-
-With one code owner, that means the pusher and the approver have to be
-different accounts. Two things have to line up:
-
-- **The push must authenticate as a different account than the
-  approver.** `git push` picks its credential from the configured
-  helpers, and the *first* helper that answers wins. If the global
-  `credential.helper` is `osxkeychain`, the push uses whichever token
-  the keychain happens to hold for `github.com` — regardless of which
-  account `gh auth switch` last selected. Point this repository's
-  credential at `gh` instead, so the active `gh` account is the one
-  that pushes:
-
-  ```bash
-  git config --local credential.https://github.com.helper \
-    '!/opt/homebrew/bin/gh auth git-credential'
-  ```
-
-- **The head commit must be authored and committed by the pushing
-  account**, with a signing key that account has registered, so the
-  commit attributes to the pusher rather than to the approver.
-
-Then author, sign, and push as the non-approver account, and let the
-code owner approve.
 
 ## Fuzzing
 

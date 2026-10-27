@@ -20,7 +20,7 @@
 use std::path::Path;
 use std::sync::{Mutex, PoisonError};
 
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use russh::keys::PublicKey;
 use russh::keys::ssh_key::known_hosts::{Entry, HostPatterns};
 use sha1::Sha1;
@@ -347,5 +347,68 @@ mod tests {
         let patterns = HostPatterns::Patterns(vec!["10.0.0.*".to_owned(), "!10.0.0.9".to_owned()]);
         assert!(!host_pattern_matches(&patterns, "10.0.0.9"));
         assert!(host_pattern_matches(&patterns, "10.0.0.5"));
+    }
+
+    /// A hashed `known_hosts` entry produced by `ssh-keygen -H` for the host
+    /// `build-host.example.com`, with the salt and digest base64-decoded.
+    /// The digest was cross-checked against `openssl dgst -sha1 -mac HMAC`
+    /// over the same salt, so this vector is pinned by two independent
+    /// implementations rather than by this crate alone.
+    const OPENSSH_HASHED_SALT: &[u8] = &[
+        0xa1, 0xa2, 0xed, 0x56, 0x37, 0xab, 0xe9, 0x2c, 0xe5, 0x2e, 0x1e, 0x6c, 0xcf, 0x7b, 0x82, 0x57,
+        0xcf, 0xd5, 0xee, 0xb4,
+    ];
+    const OPENSSH_HASHED_DIGEST: [u8; 20] = [
+        0x32, 0x7d, 0x2b, 0x28, 0x50, 0xc7, 0xfd, 0x1c, 0xd3, 0x35, 0xce, 0x64, 0xf6, 0x64, 0x57, 0xbf,
+        0xf4, 0x23, 0xa6, 0x16,
+    ];
+
+    #[test]
+    fn a_hashed_known_hosts_entry_matches_the_host_it_was_generated_for() {
+        use super::hashed_match;
+
+        assert!(hashed_match(
+            OPENSSH_HASHED_SALT,
+            &OPENSSH_HASHED_DIGEST,
+            "build-host.example.com"
+        ));
+    }
+
+    #[test]
+    fn a_hashed_known_hosts_entry_does_not_match_a_different_host() {
+        use super::hashed_match;
+
+        assert!(!hashed_match(
+            OPENSSH_HASHED_SALT,
+            &OPENSSH_HASHED_DIGEST,
+            "other-host.example.com"
+        ));
+    }
+
+    #[test]
+    fn a_hashed_known_hosts_entry_does_not_match_when_the_digest_is_altered() {
+        use super::hashed_match;
+
+        let mut tampered = OPENSSH_HASHED_DIGEST;
+        tampered[0] ^= 0xff;
+        assert!(!hashed_match(OPENSSH_HASHED_SALT, &tampered, "build-host.example.com"));
+    }
+
+    #[test]
+    fn a_hashed_known_hosts_entry_is_parsed_and_verified_end_to_end() {
+        let key = test_key();
+        // The `|1|<base64 salt>|<base64 digest>` form ssh-keygen writes.
+        let openssh_line = format!(
+            "|1|oaLtVjer6SzlLh5sz3uCV8/V7rQ=|Mn0rKFDH/RzTNc5k9mRXv/QjphY= {}",
+            key.to_openssh().unwrap()
+        );
+        let known_hosts = KnownHosts::parse(&openssh_line);
+
+        assert!(
+            verify_host_key(&known_hosts, "build-host.example.com", &key, false).is_ok(),
+            "the hashed entry should authorise the host it was generated for"
+        );
+        let err = verify_host_key(&known_hosts, "other-host.example.com", &key, false).unwrap_err();
+        assert!(matches!(err, TransportError::UnknownHostKey { .. }));
     }
 }

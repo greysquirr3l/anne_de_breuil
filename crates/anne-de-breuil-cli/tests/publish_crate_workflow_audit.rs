@@ -298,16 +298,22 @@ fn the_workflow_file_is_valid_yaml_with_the_expected_shape() {
     // something structurally broken. `serde_yaml` is not a dependency
     // of the CLI crate, and adding one to assert on a workflow file
     // would be a heavier change than the problem warrants.
+    //
+    // The line endings are normalised first: `include_str!` reads the
+    // file as it is on disk, and a Windows checkout has CRLF endings,
+    // so a literal "\njobs:\n" would not match there.
+    let workflow = without_comments(PUBLISH_WORKFLOW);
+
     assert!(
-        PUBLISH_WORKFLOW.contains("\njobs:\n"),
+        workflow.contains("\njobs:\n"),
         "the workflow must have a top-level jobs: block"
     );
     assert!(
-        PUBLISH_WORKFLOW.contains("\n  verify:\n"),
+        workflow.contains("\n  verify:\n"),
         "the workflow must have a `verify` job"
     );
     assert!(
-        PUBLISH_WORKFLOW.contains("\n  publish:\n"),
+        workflow.contains("\n  publish:\n"),
         "the workflow must have a `publish` job"
     );
 }
@@ -340,9 +346,16 @@ fn the_verify_job_never_publishes() {
 }
 
 /// Strips full-line YAML comments so a string check does not match
-/// prose in a comment.
+/// prose in a comment, and normalises line endings.
+///
+/// The normalisation matters: `include_str!` reads the file as it is on
+/// disk, and a Windows checkout has CRLF endings, so an assertion
+/// looking for `"\njobs:\n"` would fail on Windows while passing on
+/// Linux and macOS. Every assertion in this file is written against
+/// the normalised form.
 fn without_comments(workflow: &str) -> String {
     workflow
+        .replace("\r\n", "\n")
         .lines()
         .filter(|line| !line.trim_start().starts_with('#'))
         .collect::<Vec<_>>()

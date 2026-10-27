@@ -21,7 +21,7 @@ fn release_workflow_uses_workflow_run_not_tag_push() {
         "release.yml must trigger off workflow_run, not a tag push directly"
     );
     assert!(
-        !RELEASE_WORKFLOW.contains("on:\n  push:\n    tags"),
+        !RELEASE_WORKFLOW.replace("\r\n", "\n").contains("on:\n  push:\n    tags"),
         "a plain `on: push: tags` trigger will never fire for a tag pushed by GITHUB_TOKEN"
     );
 }
@@ -309,6 +309,7 @@ fn indent_of(line: &str) -> usize {
 /// configuration.
 fn without_comments(workflow: &str) -> String {
     workflow
+        .replace("\r\n", "\n")
         .lines()
         .filter(|line| !line.trim_start().starts_with('#'))
         .collect::<Vec<_>>()

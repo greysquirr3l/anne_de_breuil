@@ -76,8 +76,16 @@ fn query_chains() -> Result<Vec<NftChain>, RulesetQueryError> {
     let mut chains = Vec::new();
     let mut buf = [0u8; RECV_BUFFER_SIZE];
     loop {
+        // `recv` takes `&mut B where B: BufMut` with an implicit
+        // `Sized` bound. `BufMut` is implemented for `&mut [u8]`, not
+        // for `[u8; N]`, so the buffer is reborrowed as a slice
+        // reference. The borrow is bound to a local rather than
+        // written as `&mut &mut buf[..]` in the call, because a
+        // doubled mutable borrow in argument position trips
+        // `clippy::mut_mut`.
+        let mut slice: &mut [u8] = &mut buf;
         let received = socket
-            .recv(&mut &mut buf[..], 0)
+            .recv(&mut slice, 0)
             .map_err(|err| classify_io_error(&err))?;
         let outcome = parse_nl_buffer(buf.get(..received).unwrap_or(&[]));
         chains.extend(outcome.chains);

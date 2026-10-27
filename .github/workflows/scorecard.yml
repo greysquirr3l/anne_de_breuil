@@ -25,12 +25,44 @@ on:
     - cron: "30 6 * * 1"
   workflow_dispatch: {}
 
+# Read-only by default. The one job below overrides this with the two
+# write scopes it genuinely needs, and nothing else does.
 permissions: read-all
 
 jobs:
   analysis:
     name: Scorecard analysis
     runs-on: ubuntu-latest
+    # `ossf/scorecard-action` v2 needs these two write scopes to publish
+    # its results, and they cannot be granted at the workflow level --
+    # Scorecard's own API rejects a workflow whose global permissions
+    # include any `write` scope, and rejects `id-token: write` on any
+    # job other than the one running the action. Both go here, on the
+    # action's job only.
+    #
+    #   - `id-token: write`      mints the OIDC token that signs the
+    #                            results published to api.scorecard.dev.
+    #                            Without it the action falls back to
+    #                            sigstore's interactive device flow,
+    #                            which cannot complete on a runner and
+    #                            fails the job after retrying for
+    #                            fifteen minutes.
+    #   - `security-events: write` lets `upload-sarif` publish the
+    #                            report to the Code Scanning tab.
+    #
+    # The read scopes are listed explicitly because a job-level
+    # `permissions:` block *replaces* the workflow-level one rather
+    # than adding to it: every scope not named here would otherwise be
+    # `none`, and the action would lose the access it needs to read the
+    # repository and query the checks behind its own findings. The
+    # upstream action's documentation recommends this same set.
+    permissions:
+      id-token: write
+      security-events: write
+      contents: read
+      issues: read
+      pull-requests: read
+      checks: read
     # Hard-pin the action to a full commit SHA — `ossf/scorecard-action`
     # is the upstream-distributed action; pinned-Dependencies is itself a
     # Scorecard check, so the workflow that audits pinned-dependencies
@@ -53,3 +85,29 @@ jobs:
           # the OSSF Scorecard numbers are useful to humans browsing the
           # repo's security posture.
           publish_results: true
+
+      # `ossf/scorecard-action` writes the SARIF file but does not upload
+      # it anywhere; `upload-sarif` is what pushes it into the Code
+      # Scanning tab. Without this step the run's SARIF only ever existed
+      # as a file on the runner, and the Security tab stayed empty.
+      #
+      # `category` is what keeps the two uploads from colliding. Code
+      # Scanning matches a new analysis to an existing one by category,
+      # and `ci.yml`'s CodeQL job uploads with the default category — so
+      # an uncategorised Scorecard upload would race it for the same
+      # slot and one of the two analyses would be silently overwritten.
+      # A distinct category gives each tool its own slot.
+      - name: "Upload to code-scanning"
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          sarif_file: results.sarif
+          category: ossf-scorecard
+
+      # Keep the raw SARIF for five days so a failed or surprising
+      # Scorecard result can be inspected without re-running the scan.
+      - name: "Upload artifact"
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: SARIF file
+          path: results.sarif
+          retention-days: 5

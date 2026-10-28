@@ -21,20 +21,38 @@ view time.
 
 ## Table of contents
 
-- [Authorized use only](#authorized-use-only)
-- [Installation](#installation)
-- [What gets collected](#what-gets-collected)
-- [Operational contract](#operational-contract)
-- [Usage examples](#usage-examples)
-- [Layout](#layout)
-- [Toolchain](#toolchain)
-- [Build, test, lint](#build-test-lint)
-- [Cross-compilation](#cross-compilation)
-- [Release artifacts](#release-artifacts)
-- [Supply chain](#supply-chain)
-- [Fuzzing](#fuzzing)
-- [Fonts (report-html)](#fonts-report-html)
-- [License](#license)
+- [anne-de-breuil](#anne-de-breuil)
+  - [Table of contents](#table-of-contents)
+  - [Authorized use only](#authorized-use-only)
+  - [Installation](#installation)
+    - [From GitHub Releases](#from-github-releases)
+    - [From crates.io](#from-cratesio)
+    - [From source](#from-source)
+  - [What gets collected](#what-gets-collected)
+    - [Listening endpoints](#listening-endpoints)
+    - [Owning process](#owning-process)
+    - [Firewall rules and profiles](#firewall-rules-and-profiles)
+    - [What is not collected](#what-is-not-collected)
+  - [Operational contract](#operational-contract)
+    - [Exit codes](#exit-codes)
+    - [Redaction](#redaction)
+    - [Host key verification](#host-key-verification)
+  - [Usage examples](#usage-examples)
+    - [Local scan](#local-scan)
+    - [Remote fan-out against an inventory](#remote-fan-out-against-an-inventory)
+    - [Rendering a report](#rendering-a-report)
+    - [Comparing two scans](#comparing-two-scans)
+    - [Running the portal](#running-the-portal)
+    - [Self-updating](#self-updating)
+  - [Layout](#layout)
+  - [Toolchain](#toolchain)
+  - [Build, test, lint](#build-test-lint)
+  - [Cross-compilation](#cross-compilation)
+  - [Release artifacts](#release-artifacts)
+  - [Supply chain](#supply-chain)
+  - [Fuzzing](#fuzzing)
+  - [Fonts (report-html)](#fonts-report-html)
+  - [License](#license)
 
 ## Authorized use only
 
@@ -231,12 +249,12 @@ on without parsing output — defined once in
 `crates/anne-de-breuil-cli/src/cli.rs::ExitCode` and never reused for an
 unrelated meaning:
 
-| Code | Name               | Meaning                                                                 |
-| ---- | ------------------ | ------------------------------------------------------------------------ |
-| `0`  | `Clean`             | The command completed successfully.                                     |
-| `1`  | `OperationalError`  | Collector couldn't reach the host, snapshot couldn't be persisted, etc. |
-| `2`  | `ConfigOrArgError`  | Bad configuration or arguments — missing config field, unparseable inventory, unknown `--strategy` value. |
-| `3`  | `DriftDetected`     | `diff --fail-on-drift` found drift at or above the configured severity. |
+| Code | Name | Meaning |
+| ---- | ---- | ---- |
+| `0` | `Clean` | The command completed successfully. |
+| `1` | `OperationalError` | Collector couldn't reach the host, snapshot couldn't be persisted, etc. |
+| `2` | `ConfigOrArgError` | Bad configuration or arguments — missing config field, unparseable inventory, unknown `--strategy` value. |
+| `3` | `DriftDetected` | `diff --fail-on-drift` found drift at or above the configured severity. |
 
 ### Redaction
 
@@ -659,7 +677,7 @@ committed; the upstream source faces used to produce it are not.
 **One-time setup** — populate `fonts-src/` (gitignored) manually from the
 official upstream repositories:
 
-```
+```bash
 fonts-src/
   instrument-serif/InstrumentSerif-Regular.ttf   # https://github.com/Instrument/instrument-serif
   instrument-serif/OFL.txt

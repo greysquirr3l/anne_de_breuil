@@ -11,7 +11,7 @@ binary (behind the `report-html` feature) for the self-contained HTML
 report:
 
 | File | Family | Weight | License source |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `crates/anne-de-breuil/assets/fonts/instrument-serif-400-latin.woff2` | Instrument Serif | 400 | `OFL-instrument-serif.txt` (below) |
 | `crates/anne-de-breuil/assets/fonts/geist-400-latin.woff2` | Geist | 400 | `OFL-geist.txt` (below) |
 | `crates/anne-de-breuil/assets/fonts/geist-500-latin.woff2` | Geist | 500 | `OFL-geist.txt` (below) |
@@ -35,9 +35,9 @@ travel with the font).
 
 ### Instrument Serif
 
-Source: https://github.com/Instrument/instrument-serif
+Source: [https://github.com/Instrument/instrument-serif](https://github.com/Instrument/instrument-serif)
 
-```
+```text
 Copyright 2022 The Instrument Serif Project Authors (https://github.com/Instrument/instrument-serif)
 
 This Font Software is licensed under the SIL Open Font License, Version 1.1.
@@ -135,9 +135,9 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 
 ### Geist and Geist Mono
 
-Source: https://github.com/vercel/geist-font
+Source: [https://github.com/vercel/geist-font](https://github.com/vercel/geist-font)
 
-```
+```text
 Copyright 2024 The Geist Project Authors (https://github.com/vercel/geist-font)
 
 This Font Software is licensed under the SIL Open Font License, Version 1.1.
@@ -236,7 +236,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 ## Vendored htmx (Zero-Clause BSD)
 
 `crates/anne-de-breuil/assets/vendor/htmx.min.js` is htmx 2.0.4
-(https://htmx.org), fetched unmodified from
+([https://htmx.org](https://htmx.org)), fetched unmodified from
 `https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js`, compiled directly into
 the `anne-de-breuil` binary behind the `portal` feature and served
 same-origin from the portal itself (`GET /assets/htmx.min.js`) rather than
@@ -248,7 +248,7 @@ already applies to the standalone HTML report. SHA-256:
 Full license text, reproduced unmodified as
 `crates/anne-de-breuil/assets/vendor/htmx-LICENSE.txt`:
 
-```
+```text
 Zero-Clause BSD
 =============
 

@@ -1,0 +1,53 @@
+# OpenSSF Scorecard maintainer annotations.
+#
+# Scorecard reads this file from the repository root and uses it to mark
+# checks that cannot be satisfied here, so that they stop raising permanent
+# code-scanning alerts in the Security tab. An annotation does NOT change a
+# check's score -- it only suppresses the alert.
+#
+# Scorecard discards the WHOLE file if any check name or reason in it is
+# invalid, and it does so silently: the parse failure is logged at Info
+# level, the file is dropped, and every annotated check goes back to
+# alerting. Nothing in the Scorecard workflow fails when that happens, so
+# this file carries its own gate -- xtask's `scorecard_annotations` tests
+# validate it on every `cargo test --workspace` run, which CI performs on
+# every pull request. `cargo run -p xtask -- verify-scorecard-annotations`
+# runs the same check on demand.
+#
+# Accepted reasons: test-data, remediated, not-applicable, not-supported,
+# not-detected. Accepted check names: the 20 Scorecard registers.
+
+annotations:
+  # The OpenSSF Best Practices badge is the only thing this check rewards,
+  # and earning one is a multi-week external application this project has
+  # not committed to. Until that changes, no amount of work in this
+  # repository can move the check.
+  - checks:
+      - CII-Best-Practices
+    reasons:
+      - reason: not-applicable
+
+  # This check scores the fraction of the last 30 default-branch changesets
+  # that carry an approval from an account other than the author's, and
+  # Scorecard's default policy requires a perfect 10/10 before it stops
+  # alerting. The changesets already inside that window predate the
+  # branch-protection ruleset and cannot be retro-approved, and the score
+  # is a ratio over the whole window rather than over the changesets that
+  # follow it. The forward-looking control is the ruleset itself: a pull
+  # request cannot merge without an approval from the other account.
+  - checks:
+      - Code-Review
+    reasons:
+      - reason: not-applicable
+
+  # This check scores commit history over a 90-day window, and a repository
+  # younger than that window has no history to score -- it reports 0 by
+  # construction. This repository was created on 2026-08-20, so the check
+  # becomes meaningful on 2026-11-18. Scorecard ignores an annotation on a
+  # check that already scores 10, so leaving this in place stops mattering
+  # as soon as the check passes; remove it on 2026-11-18 anyway, so that a
+  # later drop in maintenance is not silenced.
+  - checks:
+      - Maintained
+    reasons:
+      - reason: not-applicable

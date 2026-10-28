@@ -12,6 +12,35 @@ Task identifiers (`T01`–`T32`) cross-reference the entries in
 
 ## [Unreleased]
 
+### Changed
+
+- **The `main` branch-protection ruleset was unsatisfiable for the
+  project owner** — the ruleset (`rulesets/25918976`) requires an
+  approving review that is, at the same time, from a **code owner**
+  (`require_code_owner_review`) and from **someone other than the last
+  person to push** (`require_last_push_approval`). With
+  `.github/CODEOWNERS` naming only `@greysquirr3l`, the sole code owner
+  was also necessarily the last pusher of their own PR, so no approval
+  could satisfy both rules at once. The pull request could sit
+  `REVIEW_REQUIRED` forever with a valid approval on it and no
+  diagnostic explaining why.
+
+  `.github/CODEOWNERS` now names `@sosh-ncampbell` alongside
+  `@greysquirr3l`, on the default rule *and* on every explicit rule.
+  Both accounts have write access, and GitHub treats an approval from
+  any one of a path's owners as sufficient, so either account can now
+  supply the code-owner approval while the other pushes — which is
+  what the ruleset asks for.
+
+  Both owners have to appear on every rule rather than only the
+  default `/*` rule: GitHub resolves a path's owners from the **last**
+  matching pattern and uses only that pattern's owners, so a specific
+  rule naming just one owner would have dropped the other from those
+  paths and re-created the deadlock for changes to them. A regression
+  test parses the file and fails the build if any rule names only one
+  owner, so the invariant cannot silently rot.
+  [`.github/CODEOWNERS`](.github/CODEOWNERS).
+
 ### Fixed
 
 - **The Scorecard workflow could never publish anything** — it had

@@ -5,28 +5,49 @@
 # less-specific ones. A reviewer approval from any listed owner satisfies
 # the rule for a PR.
 #
-# Single-owner project today: every path defaults to @greysquirr3l. The
-# security-critical sections below repeat @greysquirr3l explicitly so
-# future reviewers see them highlighted in the PR Owners panel rather
-# than collapsing into the default fallback line, and so that splitting a
-# path out into its own rule later is a one-line edit instead of a hunt.
+# Two-owner project: every path is owned by @greysquirr3l and
+# @sosh-ncampbell. Both accounts have write access to the repository, so
+# either one can satisfy the code-owner review requirement on its own.
+#
+# The reason there are two owners rather than one is the interaction
+# between two rules in the `main` ruleset (`rulesets/25918976`):
+#
+#   - `require_code_owner_review` — the approval must come from someone
+#     named in this file.
+#   - `require_last_push_approval` — the approval must come from
+#     someone *other* than the account that made the last push.
+#
+# With a single owner, those two rules are mutually unsatisfiable for
+# any PR that owner pushes: the only code owner is also the last
+# pusher, so no approval can clear both. With two owners the pusher and
+# the approver can be different people, and either one is a code owner.
+# That is the arrangement the ruleset is asking for.
+#
+# Both owners must therefore appear on *every* rule below, not just the
+# default. GitHub takes the last matching pattern and uses only that
+# pattern's owners, so a rule listing just @greysquirr3l would drop
+# @sosh-ncampbell from the ownership of those paths and re-create the
+# deadlock for changes to them. The security-critical sections below
+# repeat both owners explicitly so future reviewers see them highlighted
+# in the PR Owners panel rather than collapsing into the default
+# fallback line, and so that splitting a path out into its own rule
+# later is a one-line edit instead of a hunt.
 
-# Default — every path is owned by the project owner.
-/*    @greysquirr3l
+# Default — every path is owned by both project owners.
+/*    @greysquirr3l @sosh-ncampbell
 
 # Security-critical surface — release pipeline, SBOM, branch protection
-# automation, signing, and security policy. Reviewed by @greysquirr3l
-# (same owner today; this block exists so the rule is explicit and
-# greppable if a second owner is ever added for these areas).
-/.github/workflows/release.yml           @greysquirr3l
-/.github/workflows/scorecard.yml         @greysquirr3l
-/.github/dependabot.yml                  @greysquirr3l
-/.github/CODEOWNERS                      @greysquirr3l
-/docs/security-audit.md                  @greysquirr3l
-/SECURITY.md                             @greysquirr3l
+# automation, signing, and security policy. Reviewed by both owners so
+# that neither can land a change to these paths alone.
+/.github/workflows/release.yml           @greysquirr3l @sosh-ncampbell
+/.github/workflows/scorecard.yml         @greysquirr3l @sosh-ncampbell
+/.github/dependabot.yml                  @greysquirr3l @sosh-ncampbell
+/.github/CODEOWNERS                      @greysquirr3l @sosh-ncampbell
+/docs/security-audit.md                  @greysquirr3l @sosh-ncampbell
+/SECURITY.md                             @greysquirr3l @sosh-ncampbell
 
 # Cryptographic / supply-chain configuration — Rust toolchain pin, deny
 # license/advisory policy, and Cargo's own lockfile.
-/rust-toolchain.toml                     @greysquirr3l
-/deny.toml                               @greysquirr3l
-/Cargo.lock                              @greysquirr3l
+/rust-toolchain.toml                     @greysquirr3l @sosh-ncampbell
+/deny.toml                               @greysquirr3l @sosh-ncampbell
+/Cargo.lock                              @greysquirr3l @sosh-ncampbell

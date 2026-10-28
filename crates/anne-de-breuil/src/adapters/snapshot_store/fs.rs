@@ -18,6 +18,24 @@
 //!   [`StoreError::Locked`] instead of interleaving writes and corrupting
 //!   `index.json`.
 //!
+//!   That lock is *cross-process* only, and deliberately so. `flock`
+//!   attaches a lock to the **open file description**, not to the
+//!   process: two separate `open(2)` calls on the same path produce two
+//!   independent descriptions, so the second `try_lock` fails with
+//!   `WouldBlock` even when the first holder is a thread of the *same*
+//!   process. A `put` opens `.anne-store.lock` afresh on every call, so
+//!   without an in-process guard two concurrent `put`s to one store root
+//!   collide on their own lock file and every one of them but the
+//!   winner fails with [`StoreError::Locked`]. That is not a corner
+//!   case: `run_fanout` shares one store across every concurrent host
+//!   task, so a scan of an eight-host inventory at the default
+//!   concurrency of eight persisted one host and dropped seven.
+//!
+//!   [`store_lock_for`] supplies that in-process guard: a mutex per
+//!   store root, held for the same critical section as the `flock`. The
+//!   `flock` still does its job for the case the mutex cannot cover —
+//!   a *different* `anne` process writing the same directory.
+//!
 //! ## Idempotency durability
 //!
 //! The task sketch this adapter is based on keeps `seen_keys` as an
@@ -41,9 +59,11 @@
 //! mid-write leaves either the old final file or nothing at the temp
 //! path — never a truncated file at the final path.
 
+use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, LazyLock, Mutex as StdMutex, MutexGuard as StdMutexGuard, PoisonError, Weak};
 
 use async_trait::async_trait;
 
@@ -150,6 +170,65 @@ fn acquire_store_lock(root: &Path) -> Result<File, StoreError> {
     Ok(file)
 }
 
+/// The in-process half of the store's mutual exclusion, keyed by store root.
+///
+/// `flock` is a *cross-process* lock: it attaches to the open file
+/// description, so two `open(2)` calls on the same path -- including two
+/// made by the same process -- hold independent lock state, and the
+/// second `try_lock` fails with `WouldBlock` rather than waiting. Since
+/// `put` opens `.anne-store.lock` afresh on every call, two concurrent
+/// `put`s to one store root would collide on their own lock file, and
+/// all but the winner would fail with [`StoreError::Locked`].
+/// `run_fanout` shares one store across every concurrent host task, so
+/// this is the normal case, not an edge case.
+///
+/// This registry closes that gap with one mutex per store root. The
+/// `flock` is still taken, and still fails fast against a *different*
+/// `anne` process writing the same directory -- the two guards cover
+/// disjoint cases.
+type StoreLockRegistry = LazyLock<StdMutex<HashMap<PathBuf, Weak<StdMutex<()>>>>>;
+
+/// Returns the in-process mutex guarding writes to `root`.
+///
+/// The registry maps a store root to the mutex that serializes writes to
+/// it. The map holds a *weak* reference, so a root nobody writes to any
+/// more does not leak its entry: the mutex is dropped once the last
+/// in-flight write releases it, and the stale weak entry is replaced on
+/// the next lookup.
+fn store_lock_for(root: &Path) -> Arc<StdMutex<()>> {
+    static REGISTRY: StoreLockRegistry = LazyLock::new(|| StdMutex::new(HashMap::new()));
+
+    let mut registry = REGISTRY.lock().unwrap_or_else(PoisonError::into_inner);
+    if let Some(existing) = registry.get(root).and_then(Weak::upgrade) {
+        return existing;
+    }
+    let mutex = Arc::new(StdMutex::new(()));
+    registry.insert(root.to_path_buf(), Arc::downgrade(&mutex));
+    mutex
+}
+
+/// Locks the store root for the current process.
+///
+/// The returned guard releases the mutex when dropped. The caller must
+/// also hold the `flock` for the same root; this covers only writers
+/// inside this process.
+///
+/// A plain `std::sync::Mutex` rather than an async one: this runs on a
+/// `spawn_blocking` thread, outside any async context, so there is no
+/// runtime to block on and no `blocking_lock` hazard. The guard borrows
+/// the mutex, so the caller keeps the `Arc` alive in a local for at
+/// least as long as the guard -- the guard is dropped before the local,
+/// because locals drop in reverse declaration order.
+///
+/// A poisoned mutex is recovered rather than propagated: the writes it
+/// guards are atomic (temp file, then rename), so a writer that panicked
+/// mid-write left the previous index intact, and refusing every later
+/// write to that store would turn one panic into a permanently broken
+/// store.
+fn lock_store_in_process(mutex: &StdMutex<()>) -> StdMutexGuard<'_, ()> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
 fn read_index(root: &Path) -> Result<Index, StoreError> {
     let path = index_path(root);
     if !path.exists() {
@@ -179,7 +258,25 @@ fn put_blocking(
     key: IdempotencyKey,
     snapshot: &ScanSnapshot,
 ) -> Result<ScanId, StoreError> {
-    let _lock = acquire_store_lock(root)?;
+    // Two guards, for two disjoint cases, held over the same critical
+    // section:
+    //
+    //   * the in-process mutex serializes this process's own writers to
+    //     this store root, and
+    //   * the `flock` fails fast when a *different* process holds the
+    //     same root.
+    //
+    // The mutex is taken first and the `flock` second, so a second
+    // process's `flock` conflict is reported as
+    // [`StoreError::Locked`] rather than being masked by waiting on the
+    // mutex.
+    //
+    // `in_process` is bound to a local so the guard's borrow of the
+    // mutex outlives the guard: locals drop in reverse declaration
+    // order, so the guard is released before the `Arc` it borrows.
+    let in_process = store_lock_for(root);
+    let _in_process = lock_store_in_process(&in_process);
+    let _cross_process = acquire_store_lock(root)?;
 
     let mut index = read_index(root)?;
     if let Some(existing) = index
@@ -437,5 +534,81 @@ mod tests {
 
         assert_eq!(first, second);
         assert_eq!(fixtures::count_content_files(dir.path()), 1);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn concurrent_puts_to_one_store_root_all_succeed() {
+        // Regression test: `flock` attaches a lock to the *open file
+        // description*, not to the process, so two `open(2)` calls on
+        // `.anne-store.lock` — even from the same process — hold
+        // independent lock state and the second `try_lock` fails with
+        // `WouldBlock`. `put` opens that path afresh on every call, so
+        // without an in-process guard, concurrent puts to one store root
+        // collided on their own lock file and all but the winner failed
+        // with `StoreError::Locked`.
+        //
+        // This is the normal case rather than an edge case: `run_fanout`
+        // shares one store across every concurrent host task.
+        let (_dir, store) = fixtures::temp_fs_store();
+
+        let mut tasks = Vec::new();
+        for _ in 0..8 {
+            let store = store.clone();
+            tasks.push(tokio::spawn(async move {
+                store
+                    .put(IdempotencyKey::generate(), fixtures::sample_snapshot())
+                    .await
+            }));
+        }
+
+        for task in tasks {
+            task.await
+                .expect("the put task must not panic")
+                .expect("a concurrent put to one store root must succeed");
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn concurrent_puts_to_one_store_root_every_scan_is_recorded() {
+        // The stronger half of the regression: concurrent puts must not
+        // merely avoid erroring, they must all land. The store's index is
+        // read-modify-written under the store lock, so a writer that
+        // dropped another's entry would leave the index short.
+        let (dir, store) = fixtures::temp_fs_store();
+        let host = HostId::generate();
+
+        let mut tasks = Vec::new();
+        for _ in 0..8 {
+            let store = store.clone();
+            tasks.push(tokio::spawn(async move {
+                let snapshot = ScanSnapshot::new(
+                    host,
+                    ScanId::generate(),
+                    time::OffsetDateTime::UNIX_EPOCH,
+                    "1.0.0".to_owned(),
+                    vec![],
+                    vec![],
+                    vec![],
+                    TargetStrategy::LocalOnly,
+                );
+                store.put(IdempotencyKey::generate(), snapshot).await
+            }));
+        }
+
+        let mut ids = Vec::new();
+        for task in tasks {
+            ids.push(
+                task.await
+                    .expect("the put task must not panic")
+                    .expect("a concurrent put to one store root must succeed"),
+            );
+        }
+
+        let reopened = FsSnapshotStore::new(dir.path()).unwrap();
+        let mut recorded = reopened.list(host).await.unwrap();
+        recorded.sort_unstable();
+        ids.sort_unstable();
+
+        assert_eq!(recorded, ids, "every concurrent put must be recorded");
     }
 }

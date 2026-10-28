@@ -12,6 +12,31 @@ Task identifiers (`T01`–`T32`) cross-reference the entries in
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.4.1] — 2026-10-28
+
+### Added
+
+- **Scorecard maintainer annotations** — `.github/scorecard.yml` marks
+  the three OpenSSF Scorecard checks this repository cannot satisfy
+  (`CII-Best-Practices`, `Code-Review`, `Maintained`) with
+  `not-applicable`, so they stop raising permanent code-scanning alerts
+  in the Security tab. An annotation does not change a check's score; it
+  only suppresses the alert.
+
+  The file needs its own gate, because Scorecard discards the **whole**
+  file when any check name or reason in it is invalid — and it does so
+  silently, at Info level, with nothing in the workflow failing. A
+  dropped file means every annotated check silently goes back to
+  alerting. So `xtask` gained a `scorecard_annotations` module that
+  validates the file against Scorecard's published schema (the 20
+  register names and the five accepted reasons), and its tests run on
+  every `cargo test --workspace` — which CI runs on every pull request.
+  `cargo run -p xtask -- verify-scorecard-annotations` runs the same
+  check on demand.
+  [`.github/scorecard.yml`](.github/scorecard.yml).
+
 ### Changed
 
 - **The `main` branch-protection ruleset was unsatisfiable for the
@@ -42,6 +67,38 @@ Task identifiers (`T01`–`T32`) cross-reference the entries in
   [`.github/CODEOWNERS`](.github/CODEOWNERS).
 
 ### Fixed
+
+- **A fan-out scan persisted one host and dropped the rest** — the
+  filesystem snapshot store's lock was a `flock`, and `flock` attaches a
+  lock to the **open file description**, not to the process. Two
+  `open(2)` calls on the same path therefore hold *independent* lock
+  state, so the second `try_lock` fails with `WouldBlock` even when the
+  first holder is a thread of the same process. Because `put` opens
+  `.anne-store.lock` afresh on every call, two concurrent `put`s to one
+  store root collided on their own lock file, and all but the winner
+  failed with `snapshot store is locked by another writer`.
+
+  This was not an edge case. `run_fanout` shares one store across every
+  concurrent host task, and the default fan-out concurrency is 8 — so a
+  scan of an eight-host inventory at the default concurrency persisted
+  **one** host's snapshot and failed the other seven, each reporting
+  `persisting host snapshot failed: snapshot store is locked by another
+  writer`. The scan itself had succeeded; only the persistence failed,
+  and the failure was not retryable.
+
+  The store now holds a second, in-process guard — one mutex per store
+  root — across the same critical section as the `flock`. The two cover
+  disjoint cases: the mutex serializes this process's own writers, and
+  the `flock` still fails fast against a *different* `anne` process
+  writing the same directory. The `flock` is taken second, so a genuine
+  cross-process conflict is still reported as a lock conflict rather
+  than being masked by a wait.
+
+  Two regression tests pin it: one asserts that concurrent `put`s to one
+  store root all succeed, the other that every one of them is recorded
+  in the index — a writer that dropped another's entry would leave the
+  index short even if no call errored.
+  [`fs.rs`](crates/anne-de-breuil/src/adapters/snapshot_store/fs.rs).
 
 - **The Scorecard workflow could never publish anything** — it had
   been failing every week since it was added, and its analysis results
@@ -948,7 +1005,8 @@ cut, so the version number isn't claimed twice. See
 [`PROGRESS.md`](PROGRESS.md) for the per-task index and `git log` for
 the commit-level detail.
 
-[Unreleased]: https://github.com/greysquirr3l/anne_de_breuil/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/greysquirr3l/anne_de_breuil/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/greysquirr3l/anne_de_breuil/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/greysquirr3l/anne_de_breuil/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/greysquirr3l/anne_de_breuil/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/greysquirr3l/anne_de_breuil/compare/v0.2.0...v0.3.0

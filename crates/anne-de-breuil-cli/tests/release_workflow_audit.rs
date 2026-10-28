@@ -623,6 +623,57 @@ fn codeowners_file_exists_and_covers_security_critical_paths() {
     }
 }
 
+/// The `main` ruleset (`rulesets/25918976`) combines
+/// `require_code_owner_review` with `require_last_push_approval`. The
+/// first demands an approval from a handle named in `CODEOWNERS`; the
+/// second demands an approval from someone *other* than the account that
+/// made the last push. With a single owner the two are mutually
+/// unsatisfiable for any PR that owner pushes — the only code owner is
+/// also the last pusher — and the PR deadlocks.
+///
+/// Two owners break the deadlock. GitHub resolves a path's owners from
+/// the **last** matching pattern and uses only that pattern's owners, so
+/// naming the second owner on the default `/*` rule is not enough: a
+/// more specific rule listing only one owner would silently drop the
+/// other from those paths and re-create the deadlock there. Every rule
+/// must therefore name both owners.
+///
+/// This parses the file rather than grepping for handles, so a rule that
+/// names only one owner fails the build even when both handles appear
+/// elsewhere in the file.
+#[test]
+fn codeowners_every_rule_names_both_owners() {
+    const OWNERS: [&str; 2] = ["@greysquirr3l", "@sosh-ncampbell"];
+
+    let mut rules = 0usize;
+    for (index, line) in CODEOWNERS.lines().enumerate() {
+        let trimmed = line.trim();
+        // Skip blank lines and comments; a rule is `pattern owner...`.
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        rules += 1;
+        let owners: Vec<&str> = trimmed.split_whitespace().skip(1).collect();
+        for owner in OWNERS {
+            assert!(
+                owners.contains(&owner),
+                "CODEOWNERS line {} (`{trimmed}`) must name {owner} as well \
+                 as the other owner — the `main` ruleset requires an \
+                 approval from a code owner AND from someone other than \
+                 the last pusher, so a rule with a single owner \
+                 deadlocks every PR that owner pushes",
+                index + 1
+            );
+        }
+    }
+
+    assert!(
+        rules > 0,
+        "CODEOWNERS must contain at least one ownership rule, otherwise the \
+         code-owner review requirement on `main` matches nothing"
+    );
+}
+
 /// Scorecard's `Dependency-Update-Tool` check looks specifically for a
 /// `.github/dependabot.{yml,yaml}` manifest. Two ecosystems here because
 /// only those have lockfiles / catalog data that the release SBOM

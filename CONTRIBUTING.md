@@ -2,7 +2,7 @@
 
 ## Before you start
 
-This is a single-maintainer project at the moment, so the workflow
+This project has two maintainers with write access, and the workflow
 below is shaped around that rather than around a normal team process.
 Two things follow from it, and both are worth reading before you
 open a pull request.
@@ -13,10 +13,18 @@ open a pull request.
 - **Review requires two different accounts.** The ruleset requires an
   approving review that satisfies three conditions at once: at least
   one approval, from a **code owner**, and from **someone other than
-  the last person to push**. With `.github/CODEOWNERS` listing only
-  `@greysquirr3l` today, there is exactly one eligible reviewer, and
-  they cannot approve their own push. See
+  the last person to push**. `.github/CODEOWNERS` names both
+  `@greysquirr3l` and `@sosh-ncampbell` on every rule, so either
+  account can supply the code-owner approval — but the approving
+  account must not be the one that pushed. In practice: one account
+  pushes, the other approves and merges. See
   [Getting a PR merged](#getting-a-pr-merged) below.
+
+  Both owners must appear on *every* `CODEOWNERS` rule, not only the
+  default `/*` rule. GitHub resolves a path's owners from the last
+  matching pattern and uses only that pattern's owners, so a specific
+  rule naming just one owner would drop the other from those paths and
+  re-create the deadlock for changes to them.
 
 ## Build, test, lint
 
@@ -106,6 +114,14 @@ code owner approve. If the review registers as approved but the
 review decision stays `REVIEW_REQUIRED`, it is one of the two above
 that is not actually in effect — check the recorded pusher, not the
 commit's author.
+
+**3. Order matters: push everything, then approve, then merge.** The
+ruleset also sets `dismiss_stale_reviews_on_push`, so a push that
+lands *after* an approval discards that approval. Get the branch to
+its final state — all commits pushed, CI green — and only then
+request the review. Approving early and then pushing again means
+starting the approval cycle over, which is easy to mistake for the
+ruleset rejecting a valid approval.
 
 ## Security
 

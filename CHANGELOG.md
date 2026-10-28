@@ -68,6 +68,38 @@ Nothing yet.
 
 ### Fixed
 
+- **A fan-out scan persisted one host and dropped the rest** — the
+  filesystem snapshot store's lock was a `flock`, and `flock` attaches a
+  lock to the **open file description**, not to the process. Two
+  `open(2)` calls on the same path therefore hold *independent* lock
+  state, so the second `try_lock` fails with `WouldBlock` even when the
+  first holder is a thread of the same process. Because `put` opens
+  `.anne-store.lock` afresh on every call, two concurrent `put`s to one
+  store root collided on their own lock file, and all but the winner
+  failed with `snapshot store is locked by another writer`.
+
+  This was not an edge case. `run_fanout` shares one store across every
+  concurrent host task, and the default fan-out concurrency is 8 — so a
+  scan of an eight-host inventory at the default concurrency persisted
+  **one** host's snapshot and failed the other seven, each reporting
+  `persisting host snapshot failed: snapshot store is locked by another
+  writer`. The scan itself had succeeded; only the persistence failed,
+  and the failure was not retryable.
+
+  The store now holds a second, in-process guard — one mutex per store
+  root — across the same critical section as the `flock`. The two cover
+  disjoint cases: the mutex serializes this process's own writers, and
+  the `flock` still fails fast against a *different* `anne` process
+  writing the same directory. The `flock` is taken second, so a genuine
+  cross-process conflict is still reported as a lock conflict rather
+  than being masked by a wait.
+
+  Two regression tests pin it: one asserts that concurrent `put`s to one
+  store root all succeed, the other that every one of them is recorded
+  in the index — a writer that dropped another's entry would leave the
+  index short even if no call errored.
+  [`fs.rs`](crates/anne-de-breuil/src/adapters/snapshot_store/fs.rs).
+
 - **The Scorecard workflow could never publish anything** — it had
   been failing every week since it was added, and its analysis results
   were never reaching either the Code Scanning tab or

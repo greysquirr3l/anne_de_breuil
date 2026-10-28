@@ -166,19 +166,34 @@ fn host_pattern_matches(patterns: &HostPatterns, host: &str) -> bool {
             }
             matched
         }
-        HostPatterns::HashedName { salt, hash } => hashed_match(salt, hash, host),
+        HostPatterns::HashedName { salt, hash } => {
+            hashed_match(HashedEntry { key: salt, digest: hash }, host)
+        }
     }
+}
+
+/// The HMAC key and expected digest of a single hashed `known_hosts` entry.
+///
+/// OpenSSH stores the two as a pair: a digest is only meaningful against the
+/// key that produced it, so they travel together instead of as two
+/// independent arguments a caller could pair up wrongly.
+#[derive(Debug, Clone, Copy)]
+struct HashedEntry<'a> {
+    /// The HMAC key OpenSSH generated alongside the digest.
+    key: &'a [u8],
+    /// The expected `HMAC-SHA1(key, hostname)` digest.
+    digest: &'a [u8; 20],
 }
 
 /// Checks a `|1|salt|hash`-style hashed hostname entry: OpenSSH computes
 /// `HMAC-SHA1(salt, hostname)` and stores the salt alongside the digest, so
 /// the file never names the host in plaintext.
-fn hashed_match(salt: &[u8], hash: &[u8; 20], host: &str) -> bool {
-    let Ok(mut mac) = Hmac::<Sha1>::new_from_slice(salt) else {
+fn hashed_match(entry: HashedEntry<'_>, host: &str) -> bool {
+    let Ok(mut mac) = Hmac::<Sha1>::new_from_slice(entry.key) else {
         return false;
     };
     mac.update(host.as_bytes());
-    mac.finalize().into_bytes().as_slice() == hash.as_slice()
+    mac.finalize().into_bytes().as_slice() == entry.digest.as_slice()
 }
 
 /// Minimal `fnmatch`-style glob: `*` matches any run of characters
@@ -365,33 +380,43 @@ mod tests {
 
     #[test]
     fn a_hashed_known_hosts_entry_matches_the_host_it_was_generated_for() {
-        use super::hashed_match;
+        use super::{HashedEntry, hashed_match};
 
         assert!(hashed_match(
-            OPENSSH_HASHED_SALT,
-            &OPENSSH_HASHED_DIGEST,
+            HashedEntry {
+                key: OPENSSH_HASHED_SALT,
+                digest: &OPENSSH_HASHED_DIGEST
+            },
             "build-host.example.com"
         ));
     }
 
     #[test]
     fn a_hashed_known_hosts_entry_does_not_match_a_different_host() {
-        use super::hashed_match;
+        use super::{HashedEntry, hashed_match};
 
         assert!(!hashed_match(
-            OPENSSH_HASHED_SALT,
-            &OPENSSH_HASHED_DIGEST,
+            HashedEntry {
+                key: OPENSSH_HASHED_SALT,
+                digest: &OPENSSH_HASHED_DIGEST
+            },
             "other-host.example.com"
         ));
     }
 
     #[test]
     fn a_hashed_known_hosts_entry_does_not_match_when_the_digest_is_altered() {
-        use super::hashed_match;
+        use super::{HashedEntry, hashed_match};
 
         let mut tampered = OPENSSH_HASHED_DIGEST;
         tampered[0] ^= 0xff;
-        assert!(!hashed_match(OPENSSH_HASHED_SALT, &tampered, "build-host.example.com"));
+        assert!(!hashed_match(
+            HashedEntry {
+                key: OPENSSH_HASHED_SALT,
+                digest: &tampered
+            },
+            "build-host.example.com"
+        ));
     }
 
     #[test]

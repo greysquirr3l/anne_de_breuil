@@ -10,10 +10,11 @@ as a tagged release; there are no long-term-support branches.
 | 0.4.x | yes |
 | 0.3.x and anything older | no |
 
-`0.4.0` is the current release. It is the first release distributed on
-crates.io (`cargo install anne-de-breuil-cli`) as well as through GitHub
-Releases, and it raises the minimum supported Rust version to 1.99.1 —
-build from source with a 1.99.1-or-newer toolchain.
+`0.4.1` is the current release. `0.4.0` was the first release
+distributed on crates.io (`cargo install anne-de-breuil-cli`) as well as
+through GitHub Releases; `0.4.1` is distributed the same way. Both
+raise the minimum supported Rust version to 1.99.1 — build from source
+with a 1.99.1-or-newer toolchain.
 
 ## Reporting a Vulnerability
 

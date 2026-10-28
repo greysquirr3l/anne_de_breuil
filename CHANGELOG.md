@@ -12,6 +12,31 @@ Task identifiers (`T01`–`T32`) cross-reference the entries in
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.4.1] — 2026-10-28
+
+### Added
+
+- **Scorecard maintainer annotations** — `.github/scorecard.yml` marks
+  the three OpenSSF Scorecard checks this repository cannot satisfy
+  (`CII-Best-Practices`, `Code-Review`, `Maintained`) with
+  `not-applicable`, so they stop raising permanent code-scanning alerts
+  in the Security tab. An annotation does not change a check's score; it
+  only suppresses the alert.
+
+  The file needs its own gate, because Scorecard discards the **whole**
+  file when any check name or reason in it is invalid — and it does so
+  silently, at Info level, with nothing in the workflow failing. A
+  dropped file means every annotated check silently goes back to
+  alerting. So `xtask` gained a `scorecard_annotations` module that
+  validates the file against Scorecard's published schema (the 20
+  register names and the five accepted reasons), and its tests run on
+  every `cargo test --workspace` — which CI runs on every pull request.
+  `cargo run -p xtask -- verify-scorecard-annotations` runs the same
+  check on demand.
+  [`.github/scorecard.yml`](.github/scorecard.yml).
+
 ### Changed
 
 - **The `main` branch-protection ruleset was unsatisfiable for the
@@ -948,7 +973,8 @@ cut, so the version number isn't claimed twice. See
 [`PROGRESS.md`](PROGRESS.md) for the per-task index and `git log` for
 the commit-level detail.
 
-[Unreleased]: https://github.com/greysquirr3l/anne_de_breuil/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/greysquirr3l/anne_de_breuil/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/greysquirr3l/anne_de_breuil/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/greysquirr3l/anne_de_breuil/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/greysquirr3l/anne_de_breuil/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/greysquirr3l/anne_de_breuil/compare/v0.2.0...v0.3.0
